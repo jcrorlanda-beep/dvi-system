@@ -1,10 +1,11 @@
-// FULL MERGED PHASE 8 APP (INTEGRATED)
+// FULL MERGED PHASE 9 APP (INTEGRATED)
 // Adds:
-// - Inspection photo support
-// - Technician assignment + live job tracking
-// - Improved live shop board
-// - Printable invoice / job summary foundation
-// - SMS approval-ready structure
+// - Supplier + purchasing system
+// - Lightweight inventory tracking
+// - Profit & margin tracking
+// - Technician KPI tracking
+// - Return job intelligence
+// - Owner dashboard KPIs
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -28,8 +29,10 @@ import {
   Camera,
   Printer,
   MessageSquare,
-  Clock3,
   UserCog,
+  ShoppingCart,
+  Warehouse,
+  BarChart3,
 } from "lucide-react";
 
 /* ================= TYPES ================= */
@@ -43,7 +46,9 @@ type ViewKey =
   | "shop"
   | "tech"
   | "billing"
-  | "history";
+  | "history"
+  | "inventory"
+  | "purchasing";
 
 type UserRole = "Admin" | "Technician" | "Service Advisor";
 
@@ -98,6 +103,7 @@ type ROWorkLine = {
   customerDecisionLog: CustomerDecisionEntry[];
   smsApprovalSentAt?: number;
   smsApprovalStatus: "Not Sent" | "Sent" | "Approved" | "Declined";
+  failedPreviousWorkLineId?: string;
 };
 
 type ROStatus = "Open" | "In Progress" | "Waiting Parts" | "Quality Check" | "Completed";
@@ -167,6 +173,37 @@ type PartRequest = {
   unitCost: number;
   status: PartRequestStatus;
   createdAt: number;
+  selectedSupplierId?: string;
+  inventoryItemId?: string;
+  inventoryAllocatedQty?: number;
+};
+
+type Supplier = {
+  id: string;
+  name: string;
+  contactPerson: string;
+  phone: string;
+  notes: string;
+};
+
+type SupplierBid = {
+  id: string;
+  partRequestId: string;
+  supplierId: string;
+  unitPrice: number;
+  etaDays: number;
+  notes: string;
+  selected: boolean;
+};
+
+type InventoryItem = {
+  id: string;
+  partName: string;
+  sku: string;
+  quantityOnHand: number;
+  reorderLevel: number;
+  avgCost: number;
+  location: string;
 };
 
 type InspectionIssueKey =
@@ -231,6 +268,29 @@ type TechnicianProfile = {
   completedJobs: number;
 };
 
+type SupplierForm = {
+  name: string;
+  contactPerson: string;
+  phone: string;
+  notes: string;
+};
+
+type BidForm = {
+  supplierId: string;
+  unitPrice: string;
+  etaDays: string;
+  notes: string;
+};
+
+type InventoryForm = {
+  partName: string;
+  sku: string;
+  quantityOnHand: string;
+  reorderLevel: string;
+  avgCost: string;
+  location: string;
+};
+
 /* ================= SEED ================= */
 
 const USERS: User[] = [{ username: "admin", password: "admin123", role: "Admin" }];
@@ -275,6 +335,17 @@ const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t3", name: "Paul", role: "Junior Mechanic", clockedIn: false, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
 ];
 
+const DEFAULT_SUPPLIERS: Supplier[] = [
+  { id: "s1", name: "North Auto Supply", contactPerson: "Mark", phone: "09170001111", notes: "OEM and replacement parts" },
+  { id: "s2", name: "Ilocos Parts Center", contactPerson: "Ana", phone: "09175556666", notes: "Aftermarket and fast delivery" },
+];
+
+const DEFAULT_INVENTORY: InventoryItem[] = [
+  { id: "i1", partName: "Engine Oil 5W-30", sku: "OIL-5W30", quantityOnHand: 24, reorderLevel: 8, avgCost: 320, location: "Rack A" },
+  { id: "i2", partName: "Oil Filter", sku: "FLT-OIL", quantityOnHand: 12, reorderLevel: 5, avgCost: 180, location: "Rack B" },
+  { id: "i3", partName: "Brake Pad Set", sku: "BRK-PAD", quantityOnHand: 4, reorderLevel: 4, avgCost: 1450, location: "Rack C" },
+];
+
 const INSPECTION_ISSUES: InspectionIssueDefinition[] = [
   { key: "brakes", label: "Brake Concern", category: "Brakes", defaultHours: 2.5, defaultWorkLineLabel: "Brake Inspection and Repair" },
   { key: "suspension", label: "Suspension Noise / Play", category: "Suspension", defaultHours: 3, defaultWorkLineLabel: "Suspension Inspection and Repair" },
@@ -307,6 +378,29 @@ const DEFAULT_INSPECTION_FORM: InspectionForm = {
   linkedPreviousRoId: "",
   inspectionPhotos: [],
   serviceAdvisorNotes: "",
+};
+
+const DEFAULT_SUPPLIER_FORM: SupplierForm = {
+  name: "",
+  contactPerson: "",
+  phone: "",
+  notes: "",
+};
+
+const DEFAULT_BID_FORM: BidForm = {
+  supplierId: "",
+  unitPrice: "",
+  etaDays: "",
+  notes: "",
+};
+
+const DEFAULT_INVENTORY_FORM: InventoryForm = {
+  partName: "",
+  sku: "",
+  quantityOnHand: "",
+  reorderLevel: "",
+  avgCost: "",
+  location: "",
 };
 
 /* ================= UTILS ================= */
@@ -383,44 +477,11 @@ function getReleaseStatus(invoiceStatus: InvoiceStatus, checklist: ReleaseCheckl
 function getROFinancials(ro: RepairOrder) {
   const billable = ro.workLines.filter((w) => w.approvalStatus !== "Declined");
   const labor = round2(billable.reduce((sum, w) => sum + w.laborCost, 0));
-  const parts = round2(billable.reduce((sum, w) => sum + w.partsCost, 0));
-  const total = round2(labor + parts);
+  const partsRevenue = round2(billable.reduce((sum, w) => sum + w.partsCost, 0));
+  const total = round2(labor + partsRevenue);
   const paid = round2(ro.payments.reduce((sum, p) => sum + p.amount, 0));
   const balance = round2(Math.max(0, total - paid));
-  return { labor, parts, total, paid, balance };
-}
-
-function recomputeROAutomation(ros: RepairOrder[], parts: PartRequest[]): RepairOrder[] {
-  return ros.map((ro) => {
-    const workLines = ro.workLines.map((line) => {
-      const partsSummary = getPartsSummaryForWorkLine(parts, line.id);
-      const partsCost = sumPartsCostForWorkLine(parts, line.id);
-      let status = line.status;
-
-      if (line.approvalStatus === "Declined") {
-        status = "Cancelled";
-      } else if (line.approvalStatus === "Pending Approval") {
-        if (!["Done", "Cancelled"].includes(status)) status = "Pending";
-      } else {
-        if (partsSummary === "Waiting Parts" && ["Pending", "Approved"].includes(status)) status = "Waiting Parts";
-        if (partsSummary === "Ready" && status === "Waiting Parts") status = "Approved";
-      }
-
-      return getWorkLineEstimate({ ...line, partsSummary, partsCost, status });
-    });
-
-    const financials = getROFinancials({ ...ro, workLines });
-    const invoiceStatus = getInvoiceStatus(financials.paid, financials.total);
-    const releaseStatus = getReleaseStatus(invoiceStatus, ro.releaseChecklist);
-
-    return {
-      ...ro,
-      workLines,
-      status: getROStatusFromWorkLines(workLines),
-      invoiceStatus,
-      releaseStatus,
-    };
-  });
+  return { labor, parts: partsRevenue, total, paid, balance };
 }
 
 function buildWorkLinesFromInspection(issues: InspectionSelection): ROWorkLine[] {
@@ -460,7 +521,6 @@ function buildCustomerHistory(ros: RepairOrder[]): CustomerHistoryRecord[] {
     if (ro.isReturnJob) current.totalReturnJobs += 1;
     current.roIds.push(ro.id);
     if (!current.lastVisitAt || ro.createdAt > current.lastVisitAt) current.lastVisitAt = ro.createdAt;
-
     const categories = ro.workLines.filter((w) => w.approvalStatus !== "Declined").map((w) => w.category);
     const seen = new Set(current.repeatIssueCategories);
     categories.forEach((cat) => {
@@ -480,6 +540,10 @@ function formatDuration(start?: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+function getSupplierName(suppliers: Supplier[], id?: string) {
+  return suppliers.find((s) => s.id === id)?.name || "Not selected";
+}
+
 function runSanityChecks() {
   const built = buildWorkLinesFromInspection({ ...EMPTY_INSPECTION_SELECTIONS, brakes: true, engine: true });
   console.assert(built.length === 2, "Inspection should generate 2 work lines");
@@ -497,20 +561,23 @@ export default function App() {
   const [inspectionForm, setInspectionForm] = useState<InspectionForm>(DEFAULT_INSPECTION_FORM);
   const [paymentForms, setPaymentForms] = useState<Record<string, PaymentForm>>({});
   const [historySearch, setHistorySearch] = useState("");
-  const [technicians, setTechnicians] = useState<TechnicianProfile[]>(() => safeLoad<TechnicianProfile[]>("phase8_techs", DEFAULT_TECHNICIANS));
+  const [technicians, setTechnicians] = useState<TechnicianProfile[]>(() => safeLoad<TechnicianProfile[]>("phase9_techs", DEFAULT_TECHNICIANS));
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => safeLoad<Supplier[]>("phase9_suppliers", DEFAULT_SUPPLIERS));
+  const [supplierBids, setSupplierBids] = useState<SupplierBid[]>(() => safeLoad<SupplierBid[]>("phase9_bids", []));
+  const [inventory, setInventory] = useState<InventoryItem[]>(() => safeLoad<InventoryItem[]>("phase9_inventory", DEFAULT_INVENTORY));
+  const [supplierForm, setSupplierForm] = useState<SupplierForm>(DEFAULT_SUPPLIER_FORM);
+  const [bidForms, setBidForms] = useState<Record<string, BidForm>>({});
+  const [inventoryForm, setInventoryForm] = useState<InventoryForm>(DEFAULT_INVENTORY_FORM);
 
-  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<RepairOrder[]>("phase8_ros", []));
-  const [parts, setParts] = useState<PartRequest[]>(() => safeLoad<PartRequest[]>("phase8_parts", []));
+  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<RepairOrder[]>("phase9_ros", []));
+  const [parts, setParts] = useState<PartRequest[]>(() => safeLoad<PartRequest[]>("phase9_parts", []));
 
-  useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("phase8_ros", JSON.stringify(ros));
-  }, [ros]);
-  useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("phase8_parts", JSON.stringify(parts));
-  }, [parts]);
-  useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("phase8_techs", JSON.stringify(technicians));
-  }, [technicians]);
+  useEffect(() => { if (typeof window !== "undefined") window.localStorage.setItem("phase9_ros", JSON.stringify(ros)); }, [ros]);
+  useEffect(() => { if (typeof window !== "undefined") window.localStorage.setItem("phase9_parts", JSON.stringify(parts)); }, [parts]);
+  useEffect(() => { if (typeof window !== "undefined") window.localStorage.setItem("phase9_techs", JSON.stringify(technicians)); }, [technicians]);
+  useEffect(() => { if (typeof window !== "undefined") window.localStorage.setItem("phase9_suppliers", JSON.stringify(suppliers)); }, [suppliers]);
+  useEffect(() => { if (typeof window !== "undefined") window.localStorage.setItem("phase9_bids", JSON.stringify(supplierBids)); }, [supplierBids]);
+  useEffect(() => { if (typeof window !== "undefined") window.localStorage.setItem("phase9_inventory", JSON.stringify(inventory)); }, [inventory]);
 
   const syncTechniciansFromROs = (nextRos: RepairOrder[]) => {
     setTechnicians((prev) =>
@@ -518,11 +585,11 @@ export default function App() {
         let currentRoNumber = "";
         let currentWorkLine = "";
         let currentStartedAt: number | undefined = undefined;
-        let completedJobs = tech.completedJobs;
-
+        let completedJobs = 0;
         nextRos.forEach((ro) => {
           ro.workLines.forEach((line) => {
             if (line.technician.trim() !== tech.name) return;
+            if (line.status === "Done") completedJobs += 1;
             if (line.status === "In Progress") {
               currentRoNumber = ro.roNumber;
               currentWorkLine = line.label;
@@ -530,10 +597,35 @@ export default function App() {
             }
           });
         });
-
         return { ...tech, currentRoNumber, currentWorkLine, currentStartedAt, completedJobs };
       }),
     );
+  };
+
+  const recomputeAll = (nextRos: RepairOrder[], nextParts: PartRequest[]) => {
+    const computedRos = nextRos.map((ro) => {
+      const workLines = ro.workLines.map((line) => {
+        const partsSummary = getPartsSummaryForWorkLine(nextParts, line.id);
+        const partsCost = sumPartsCostForWorkLine(nextParts, line.id);
+        let status = line.status;
+        if (line.approvalStatus === "Declined") {
+          status = "Cancelled";
+        } else if (line.approvalStatus === "Pending Approval") {
+          if (!["Done", "Cancelled"].includes(status)) status = "Pending";
+        } else {
+          if (partsSummary === "Waiting Parts" && ["Pending", "Approved"].includes(status)) status = "Waiting Parts";
+          if (partsSummary === "Ready" && status === "Waiting Parts") status = "Approved";
+        }
+        return getWorkLineEstimate({ ...line, partsSummary, partsCost, status });
+      });
+      const financials = getROFinancials({ ...ro, workLines });
+      const invoiceStatus = getInvoiceStatus(financials.paid, financials.total);
+      const releaseStatus = getReleaseStatus(invoiceStatus, ro.releaseChecklist);
+      return { ...ro, workLines, status: getROStatusFromWorkLines(workLines), invoiceStatus, releaseStatus };
+    });
+    setRos(computedRos);
+    setParts(nextParts);
+    syncTechniciansFromROs(computedRos);
   };
 
   /* ================= ACTIONS ================= */
@@ -561,9 +653,8 @@ export default function App() {
       inspectionPhotos: [],
       serviceAdvisorNotes: "",
     };
-    const next = [nextRO, ...ros];
-    setRos(next);
-    syncTechniciansFromROs(next);
+    const nextRos = [nextRO, ...ros];
+    recomputeAll(nextRos, parts);
   };
 
   const createROFromInspection = () => {
@@ -590,31 +681,28 @@ export default function App() {
       inspectionPhotos: inspectionForm.inspectionPhotos,
       serviceAdvisorNotes: inspectionForm.serviceAdvisorNotes,
     };
-    const next = [nextRO, ...ros];
-    setRos(next);
-    syncTechniciansFromROs(next);
+    const nextRos = [nextRO, ...ros];
+    recomputeAll(nextRos, parts);
     setInspectionForm(DEFAULT_INSPECTION_FORM);
     setView("approval");
   };
 
   const updateRO = (id: string, patch: Partial<RepairOrder>) => {
-    const next = ros.map((ro) => (ro.id === id ? { ...ro, ...patch } : ro));
-    setRos(next);
-    syncTechniciansFromROs(next);
+    const nextRos = ros.map((ro) => (ro.id === id ? { ...ro, ...patch } : ro));
+    recomputeAll(nextRos, parts);
   };
 
   const addWorkLine = (roId: string) => {
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
       const workLines = [...ro.workLines, getWorkLineEstimate({ ...DEFAULT_WORK_LINE, id: uid() })];
-      return { ...ro, workLines, status: getROStatusFromWorkLines(workLines) };
+      return { ...ro, workLines };
     });
-    setRos(next);
-    syncTechniciansFromROs(next);
+    recomputeAll(nextRos, parts);
   };
 
   const updateWorkLine = (roId: string, wlId: string, patch: Partial<ROWorkLine>) => {
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
       const workLines = ro.workLines.map((line) => {
         if (line.id !== wlId) return line;
@@ -623,9 +711,7 @@ export default function App() {
           nextLine.startedAt = Date.now();
           nextLine.pausedAt = undefined;
         }
-        if (patch.status === "Approved" && line.status === "In Progress") {
-          nextLine.pausedAt = Date.now();
-        }
+        if (patch.status === "Approved" && line.status === "In Progress") nextLine.pausedAt = Date.now();
         if (patch.status === "Done" && line.startedAt) {
           const elapsedHours = Math.max(0.1, (Date.now() - line.startedAt) / 3600000);
           nextLine.actualHours = round2(elapsedHours);
@@ -635,14 +721,13 @@ export default function App() {
         }
         return nextLine;
       });
-      return recomputeROAutomation([{ ...ro, workLines }], parts)[0];
+      return { ...ro, workLines };
     });
-    setRos(next);
-    syncTechniciansFromROs(next);
+    recomputeAll(nextRos, parts);
   };
 
   const logCustomerDecision = (roId: string, wlId: string, decision: ApprovalStatus, note: string, via: "Manual" | "SMS" = "Manual") => {
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
       const workLines = ro.workLines.map((line) => {
         if (line.id !== wlId) return line;
@@ -657,25 +742,17 @@ export default function App() {
           smsApprovalStatus: via === "SMS" ? (decision === "Declined" ? "Declined" : "Approved") : line.smsApprovalStatus,
         };
       });
-      return recomputeROAutomation([{ ...ro, workLines }], parts)[0];
+      return { ...ro, workLines };
     });
-    setRos(next);
-    syncTechniciansFromROs(next);
+    recomputeAll(nextRos, parts);
   };
 
   const sendSmsApproval = (roId: string, wlId: string) => {
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
-      return {
-        ...ro,
-        workLines: ro.workLines.map((line) =>
-          line.id === wlId
-            ? { ...line, smsApprovalSentAt: Date.now(), smsApprovalStatus: "Sent" }
-            : line,
-        ),
-      };
+      return { ...ro, workLines: ro.workLines.map((line) => line.id === wlId ? { ...line, smsApprovalSentAt: Date.now(), smsApprovalStatus: "Sent" } : line) };
     });
-    setRos(next);
+    setRos(nextRos);
   };
 
   const startWorkLine = (roId: string, wlId: string) => {
@@ -694,6 +771,7 @@ export default function App() {
   };
 
   const createPart = (roNumber: string, wl?: ROWorkLine) => {
+    const inventoryMatch = inventory.find((item) => item.partName.toLowerCase() === (wl?.category === "Engine" ? "engine oil 5w-30" : ""));
     const nextPart: PartRequest = {
       id: uid(),
       roNumber,
@@ -704,20 +782,15 @@ export default function App() {
       unitCost: 0,
       status: "Draft",
       createdAt: Date.now(),
+      inventoryItemId: inventoryMatch?.id,
+      inventoryAllocatedQty: 0,
     };
-    const nextParts = [nextPart, ...parts];
-    setParts(nextParts);
-    const nextRos = recomputeROAutomation(ros, nextParts);
-    setRos(nextRos);
-    syncTechniciansFromROs(nextRos);
+    recomputeAll(ros, [nextPart, ...parts]);
   };
 
   const updatePart = (id: string, patch: Partial<PartRequest>) => {
     const nextParts = parts.map((part) => (part.id === id ? { ...part, ...patch } : part));
-    setParts(nextParts);
-    const nextRos = recomputeROAutomation(ros, nextParts);
-    setRos(nextRos);
-    syncTechniciansFromROs(nextRos);
+    recomputeAll(ros, nextParts);
   };
 
   const updatePaymentForm = (roId: string, patch: Partial<PaymentForm>) => {
@@ -728,33 +801,29 @@ export default function App() {
     const form = paymentForms[roId] || DEFAULT_PAYMENT_FORM;
     const amount = Number(form.amount);
     if (!amount || amount <= 0) return;
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
       const payments = [{ id: uid(), timestamp: Date.now(), amount, method: form.method, note: form.note }, ...ro.payments];
-      return recomputeROAutomation([{ ...ro, payments }], parts)[0];
+      return { ...ro, payments };
     });
-    setRos(next);
-    syncTechniciansFromROs(next);
+    recomputeAll(nextRos, parts);
     setPaymentForms((prev) => ({ ...prev, [roId]: { ...DEFAULT_PAYMENT_FORM } }));
   };
 
   const updateReleaseChecklist = (roId: string, patch: Partial<ReleaseChecklist>) => {
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
-      const releaseChecklist = { ...ro.releaseChecklist, ...patch };
-      const releaseStatus = getReleaseStatus(ro.invoiceStatus, releaseChecklist);
-      return { ...ro, releaseChecklist, releaseStatus };
+      return { ...ro, releaseChecklist: { ...ro.releaseChecklist, ...patch } };
     });
-    setRos(next);
+    recomputeAll(nextRos, parts);
   };
 
   const finalizeRelease = (roId: string) => {
-    const next = ros.map((ro) => {
+    const nextRos = ros.map((ro) => {
       if (ro.id !== roId || ro.releaseStatus !== "Ready for Release") return ro;
-      const releaseChecklist = { ...ro.releaseChecklist, releasedAt: Date.now() };
-      return { ...ro, releaseChecklist, releaseStatus: "Released" };
+      return { ...ro, releaseChecklist: { ...ro.releaseChecklist, releasedAt: Date.now() }, releaseStatus: "Released" };
     });
-    setRos(next);
+    setRos(nextRos);
   };
 
   const toggleTechClock = (techId: string) => {
@@ -762,51 +831,162 @@ export default function App() {
   };
 
   const addInspectionPhoto = () => {
-    setInspectionForm((prev) => ({
-      ...prev,
-      inspectionPhotos: [...prev.inspectionPhotos, { id: uid(), label: `Photo ${prev.inspectionPhotos.length + 1}`, url: "" }],
-    }));
+    setInspectionForm((prev) => ({ ...prev, inspectionPhotos: [...prev.inspectionPhotos, { id: uid(), label: `Photo ${prev.inspectionPhotos.length + 1}`, url: "" }] }));
   };
 
   const updateInspectionPhoto = (photoId: string, field: "label" | "url", value: string) => {
-    setInspectionForm((prev) => ({
+    setInspectionForm((prev) => ({ ...prev, inspectionPhotos: prev.inspectionPhotos.map((p) => (p.id === photoId ? { ...p, [field]: value } : p)) }));
+  };
+
+  const createSupplier = () => {
+    if (!supplierForm.name.trim()) return;
+    setSuppliers((prev) => [{ id: uid(), ...supplierForm }, ...prev]);
+    setSupplierForm(DEFAULT_SUPPLIER_FORM);
+  };
+
+  const updateBidForm = (partId: string, patch: Partial<BidForm>) => {
+    setBidForms((prev) => ({ ...prev, [partId]: { ...(prev[partId] || DEFAULT_BID_FORM), ...patch } }));
+  };
+
+  const addBid = (partId: string) => {
+    const form = bidForms[partId] || DEFAULT_BID_FORM;
+    if (!form.supplierId || !form.unitPrice) return;
+    setSupplierBids((prev) => [
+      {
+        id: uid(),
+        partRequestId: partId,
+        supplierId: form.supplierId,
+        unitPrice: Number(form.unitPrice) || 0,
+        etaDays: Number(form.etaDays) || 0,
+        notes: form.notes,
+        selected: false,
+      },
       ...prev,
-      inspectionPhotos: prev.inspectionPhotos.map((p) => (p.id === photoId ? { ...p, [field]: value } : p)),
-    }));
+    ]);
+    setBidForms((prev) => ({ ...prev, [partId]: { ...DEFAULT_BID_FORM } }));
+  };
+
+  const selectBid = (bidId: string) => {
+    const bid = supplierBids.find((b) => b.id === bidId);
+    if (!bid) return;
+    const nextBids = supplierBids.map((b) => ({ ...b, selected: b.id === bidId ? true : b.partRequestId === bid.partRequestId ? false : b.selected }));
+    setSupplierBids(nextBids);
+    const nextParts = parts.map((p) =>
+      p.id === bid.partRequestId
+        ? { ...p, selectedSupplierId: bid.supplierId, unitCost: bid.unitPrice, status: "Supplier Selected" }
+        : p,
+    );
+    recomputeAll(ros, nextParts);
+  };
+
+  const createInventoryItem = () => {
+    if (!inventoryForm.partName.trim()) return;
+    setInventory((prev) => [
+      {
+        id: uid(),
+        partName: inventoryForm.partName,
+        sku: inventoryForm.sku,
+        quantityOnHand: Number(inventoryForm.quantityOnHand) || 0,
+        reorderLevel: Number(inventoryForm.reorderLevel) || 0,
+        avgCost: Number(inventoryForm.avgCost) || 0,
+        location: inventoryForm.location,
+      },
+      ...prev,
+    ]);
+    setInventoryForm(DEFAULT_INVENTORY_FORM);
+  };
+
+  const restockInventory = (itemId: string, qty: number) => {
+    if (!qty) return;
+    setInventory((prev) => prev.map((item) => (item.id === itemId ? { ...item, quantityOnHand: item.quantityOnHand + qty } : item)));
+  };
+
+  const allocateInventoryToPart = (partId: string, itemId: string) => {
+    const item = inventory.find((i) => i.id === itemId);
+    const part = parts.find((p) => p.id === partId);
+    if (!item || !part) return;
+    if (item.quantityOnHand < part.qty) return;
+
+    setInventory((prev) => prev.map((inv) => (inv.id === itemId ? { ...inv, quantityOnHand: inv.quantityOnHand - part.qty } : inv)));
+    const nextParts = parts.map((p) =>
+      p.id === partId
+        ? {
+            ...p,
+            inventoryItemId: itemId,
+            inventoryAllocatedQty: part.qty,
+            unitCost: item.avgCost,
+            status: "Parts Arrived",
+          }
+        : p,
+    );
+    recomputeAll(ros, nextParts);
   };
 
   /* ================= DERIVED ================= */
 
-  const dashboardStats = useMemo(
-    () => ({
-      totalRO: ros.length,
-      inProgress: ros.filter((r) => r.status === "In Progress").length,
-      waitingParts: ros.filter((r) => r.status === "Waiting Parts").length,
-      completed: ros.filter((r) => r.status === "Completed").length,
-      pendingApproval: ros.reduce((sum, ro) => sum + ro.workLines.filter((w) => w.approvalStatus === "Pending Approval").length, 0),
-      readyRelease: ros.filter((r) => r.releaseStatus === "Ready for Release").length,
-      returnJobs: ros.filter((r) => r.isReturnJob).length,
-    }),
-    [ros],
-  );
+  const dashboardStats = useMemo(() => ({
+    totalRO: ros.length,
+    inProgress: ros.filter((r) => r.status === "In Progress").length,
+    waitingParts: ros.filter((r) => r.status === "Waiting Parts").length,
+    completed: ros.filter((r) => r.status === "Completed").length,
+    pendingApproval: ros.reduce((sum, ro) => sum + ro.workLines.filter((w) => w.approvalStatus === "Pending Approval").length, 0),
+    readyRelease: ros.filter((r) => r.releaseStatus === "Ready for Release").length,
+    returnJobs: ros.filter((r) => r.isReturnJob).length,
+  }), [ros]);
 
-  const technicianLoad = useMemo(() => {
-    const map: Record<string, { jobs: number; current: string[] }> = {};
-    ros.forEach((ro) => {
+  const dailyRevenue = useMemo(() => round2(ros.reduce((sum, ro) => sum + ro.payments.filter((p) => new Date(p.timestamp).toDateString() === new Date().toDateString()).reduce((s, p) => s + p.amount, 0), 0)), [ros]);
+
+  const monthlyRevenue = useMemo(() => {
+    const now = new Date();
+    return round2(
+      ros.reduce(
+        (sum, ro) =>
+          sum +
+          ro.payments.filter((p) => {
+            const d = new Date(p.timestamp);
+            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          }).reduce((s, p) => s + p.amount, 0),
+        0,
+      ),
+    );
+  }, [ros]);
+
+  const avgROValue = useMemo(() => {
+    if (!ros.length) return 0;
+    const total = ros.reduce((sum, ro) => sum + getROFinancials(ro).total, 0);
+    return round2(total / ros.length);
+  }, [ros]);
+
+  const comebackRate = useMemo(() => (ros.length ? round2((ros.filter((r) => r.isReturnJob).length / ros.length) * 100) : 0), [ros]);
+
+  const technicianKpis = useMemo(() => {
+    return technicians.map((tech) => {
+      const lines = ros.flatMap((ro) => ro.workLines.filter((w) => w.technician.trim() === tech.name));
+      const billedHours = round2(lines.reduce((sum, l) => sum + l.estimatedHours, 0));
+      const actualHours = round2(lines.reduce((sum, l) => sum + (l.actualHours || 0), 0));
+      const efficiency = actualHours > 0 ? round2((billedHours / actualHours) * 100) : 0;
+      const comebacks = ros.filter((ro) => ro.isReturnJob && ro.workLines.some((w) => w.technician.trim() === tech.name)).length;
+      const active = lines.filter((l) => l.status === "In Progress").length;
+      return { ...tech, billedHours, actualHours, efficiency, comebacks, active };
+    });
+  }, [technicians, ros]);
+
+  const returnIntelligence = useMemo(() => {
+    const byTech: Record<string, number> = {};
+    const byCategory: Record<string, number> = {};
+    ros.filter((r) => r.isReturnJob).forEach((ro) => {
       ro.workLines.forEach((line) => {
-        const tech = line.technician.trim();
-        if (!tech) return;
-        if (!map[tech]) map[tech] = { jobs: 0, current: [] };
-        map[tech].jobs += 1;
-        if (line.status === "In Progress") map[tech].current.push(`${ro.roNumber}: ${line.label}`);
+        if (line.technician) byTech[line.technician] = (byTech[line.technician] || 0) + 1;
+        byCategory[line.category] = (byCategory[line.category] || 0) + 1;
       });
     });
-    return map;
+    return { byTech, byCategory };
   }, [ros]);
 
   const shopRows = useMemo(() => ros.slice().sort((a, b) => a.bay.localeCompare(b.bay) || b.createdAt - a.createdAt), [ros]);
   const estimateSummary = useMemo(() => ros.map((ro) => ({ roId: ro.id, roNumber: ro.roNumber, ...getROFinancials(ro) })), [ros]);
   const customerHistory = useMemo(() => buildCustomerHistory(ros), [ros]);
+  const inventoryAlerts = useMemo(() => inventory.filter((i) => i.quantityOnHand <= i.reorderLevel), [inventory]);
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
@@ -818,7 +998,7 @@ export default function App() {
 
   const DashboardView = () => (
     <div>
-      <h2 style={styles.heading}>Dashboard</h2>
+      <h2 style={styles.heading}>Owner Dashboard</h2>
       <div style={styles.statsGrid}>
         <MetricCard title="Total RO" value={dashboardStats.totalRO} />
         <MetricCard title="In Progress" value={dashboardStats.inProgress} />
@@ -827,6 +1007,44 @@ export default function App() {
         <MetricCard title="Pending Approval" value={dashboardStats.pendingApproval} />
         <MetricCard title="Ready Release" value={dashboardStats.readyRelease} />
         <MetricCard title="Return Jobs" value={dashboardStats.returnJobs} />
+        <MetricCard title="Low Stock Items" value={inventoryAlerts.length} />
+      </div>
+
+      <div style={{ ...styles.statsGrid, marginTop: 14 }}>
+        <MoneyCard title="Daily Revenue" value={dailyRevenue} />
+        <MoneyCard title="Monthly Revenue" value={monthlyRevenue} />
+        <MoneyCard title="Avg RO Value" value={avgROValue} />
+        <MetricCard title="Comeback Rate %" value={comebackRate} />
+      </div>
+
+      <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Technician Leaderboard</div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {technicianKpis.sort((a, b) => b.efficiency - a.efficiency).map((tech) => (
+              <div key={tech.id} style={styles.shopMiniRow}>
+                <span>{tech.name}</span>
+                <span>{tech.efficiency}% efficiency</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Return Job Hotspots</div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {Object.entries(returnIntelligence.byCategory).length === 0 ? (
+              <div style={{ color: '#6b7280' }}>No return-job trends yet.</div>
+            ) : (
+              Object.entries(returnIntelligence.byCategory).map(([cat, count]) => (
+                <div key={cat} style={styles.shopMiniRow}>
+                  <span>{cat}</span>
+                  <span>{count} comebacks</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -972,11 +1190,7 @@ export default function App() {
             <span style={styles.badgeDark}>{ro.status}</span>
             {ro.isReturnJob && <span style={styles.badgeDanger}>Comeback</span>}
           </div>
-          {ro.inspectionPhotos.length > 0 && (
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {ro.inspectionPhotos.map((photo) => <span key={photo.id} style={styles.badgeBlue}>{photo.label}</span>)}
-            </div>
-          )}
+          {ro.inspectionPhotos.length > 0 && <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>{ro.inspectionPhotos.map((photo) => <span key={photo.id} style={styles.badgeBlue}>{photo.label}</span>)}</div>}
           {ro.serviceAdvisorNotes && <div style={{ marginTop: 10, color: '#4b5563' }}><strong>SA Notes:</strong> {ro.serviceAdvisorNotes}</div>}
           <div style={{ marginTop: 12 }}><button style={styles.secondaryButton} onClick={() => addWorkLine(ro.id)}>+ Add Work Line</button></div>
           {ro.workLines.map((line) => (
@@ -1005,20 +1219,63 @@ export default function App() {
 
   const PartsView = () => (
     <div>
-      <h2 style={styles.heading}>Parts</h2>
+      <h2 style={styles.heading}>Parts + Supplier Bids</h2>
       {parts.length === 0 && <div style={styles.cardBlock}>No parts requests yet.</div>}
-      {parts.map((part) => (
-        <div key={part.id} style={styles.cardBlock}>
-          <div style={styles.wrapRow}>
-            <span style={styles.badgeDark}>{part.roNumber}</span>
-            <span style={styles.badgeMuted}>{part.workLineLabel || 'No Work Line'}</span>
-            <input style={styles.input} placeholder="Part Name" value={part.partName} onChange={(e) => updatePart(part.id, { partName: e.target.value })} />
-            <input style={{ ...styles.input, maxWidth: 90 }} type="number" value={part.qty} onChange={(e) => updatePart(part.id, { qty: Number(e.target.value) || 0 })} />
-            <input style={{ ...styles.input, maxWidth: 120 }} type="number" value={part.unitCost} onChange={(e) => updatePart(part.id, { unitCost: Number(e.target.value) || 0 })} placeholder="Unit Cost" />
-            <select style={styles.input} value={part.status} onChange={(e) => updatePart(part.id, { status: e.target.value as PartRequestStatus })}>{["Draft", "Sent to Suppliers", "Waiting for Bids", "Supplier Selected", "Ordered", "Shipped", "Parts Arrived", "Closed", "Cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}</select>
+      {parts.map((part) => {
+        const bids = supplierBids.filter((b) => b.partRequestId === part.id);
+        const bidForm = bidForms[part.id] || DEFAULT_BID_FORM;
+        return (
+          <div key={part.id} style={styles.cardBlock}>
+            <div style={styles.wrapRow}>
+              <span style={styles.badgeDark}>{part.roNumber}</span>
+              <span style={styles.badgeMuted}>{part.workLineLabel || 'No Work Line'}</span>
+              <input style={styles.input} placeholder="Part Name" value={part.partName} onChange={(e) => updatePart(part.id, { partName: e.target.value })} />
+              <input style={{ ...styles.input, maxWidth: 90 }} type="number" value={part.qty} onChange={(e) => updatePart(part.id, { qty: Number(e.target.value) || 0 })} />
+              <input style={{ ...styles.input, maxWidth: 120 }} type="number" value={part.unitCost} onChange={(e) => updatePart(part.id, { unitCost: Number(e.target.value) || 0 })} placeholder="Unit Cost" />
+              <select style={styles.input} value={part.status} onChange={(e) => updatePart(part.id, { status: e.target.value as PartRequestStatus })}>{["Draft", "Sent to Suppliers", "Waiting for Bids", "Supplier Selected", "Ordered", "Shipped", "Parts Arrived", "Closed", "Cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}</select>
+              <span style={styles.badgeBlue}>{getSupplierName(suppliers, part.selectedSupplierId)}</span>
+            </div>
+
+            <div style={{ ...styles.formGrid, marginTop: 10 }}>
+              <select style={styles.input} value={bidForm.supplierId} onChange={(e) => updateBidForm(part.id, { supplierId: e.target.value })}>
+                <option value="">Select supplier</option>
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <input style={styles.input} type="number" placeholder="Bid unit price" value={bidForm.unitPrice} onChange={(e) => updateBidForm(part.id, { unitPrice: e.target.value })} />
+              <input style={styles.input} type="number" placeholder="ETA days" value={bidForm.etaDays} onChange={(e) => updateBidForm(part.id, { etaDays: e.target.value })} />
+              <input style={styles.input} placeholder="Bid notes" value={bidForm.notes} onChange={(e) => updateBidForm(part.id, { notes: e.target.value })} />
+            </div>
+            <div style={{ marginTop: 10, ...styles.wrapRow }}>
+              <button style={styles.secondaryButton} onClick={() => addBid(part.id)}><ShoppingCart size={14} /> Add Bid</button>
+              {inventory.map((item) => (
+                <button key={item.id} style={styles.secondaryButton} onClick={() => allocateInventoryToPart(part.id, item.id)}>
+                  Use {item.partName}
+                </button>
+              ))}
+            </div>
+
+            {bids.length > 0 && (
+              <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                {bids.map((bid) => (
+                  <div key={bid.id} style={styles.logRow}>
+                    <div style={styles.rowBetween}>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{getSupplierName(suppliers, bid.supplierId)}</div>
+                        <div style={{ fontSize: 13, color: '#6b7280' }}>₱{bid.unitPrice.toLocaleString()} • ETA {bid.etaDays} day(s)</div>
+                      </div>
+                      <div style={styles.wrapRow}>
+                        {bid.selected && <span style={styles.badgeGood}>Selected</span>}
+                        <button style={styles.secondaryButton} onClick={() => selectBid(bid.id)}>Select</button>
+                      </div>
+                    </div>
+                    {bid.notes && <div style={{ marginTop: 6, fontSize: 13 }}>{bid.notes}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -1059,9 +1316,9 @@ export default function App() {
 
   const TechView = () => (
     <div>
-      <h2 style={styles.heading}>Technician Board</h2>
+      <h2 style={styles.heading}>Technician Board + KPI</h2>
       <div style={styles.shopGrid}>
-        {technicians.map((tech) => (
+        {technicianKpis.map((tech) => (
           <div key={tech.id} style={styles.shopCard}>
             <div style={styles.rowBetween}>
               <div>
@@ -1078,33 +1335,28 @@ export default function App() {
               <div><strong>Current Job:</strong> {tech.currentWorkLine || '—'}</div>
               <div><strong>Active Time:</strong> {tech.currentStartedAt ? formatDuration(tech.currentStartedAt) : '—'}</div>
             </div>
+            <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+              <div>Billed Hours: {tech.billedHours}</div>
+              <div>Actual Hours: {tech.actualHours}</div>
+              <div>Efficiency: {tech.efficiency}%</div>
+              <div>Comebacks: {tech.comebacks}</div>
+              <div>Active Jobs: {tech.active}</div>
+            </div>
           </div>
         ))}
       </div>
-      {Object.entries(technicianLoad).length > 0 && (
-        <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
-          {Object.entries(technicianLoad).map(([tech, info]) => (
-            <div key={tech} style={styles.cardBlock}>
-              <div style={styles.rowBetween}>
-                <div style={{ fontWeight: 700 }}>{tech}</div>
-                <span style={styles.badgeMuted}>{info.jobs} jobs</span>
-              </div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-                {info.current.length ? info.current.map((job) => <div key={job} style={styles.innerBlock}>{job}</div>) : <div style={{ color: '#6b7280' }}>No active job in progress.</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 
   const BillingView = () => (
     <div>
-      <h2 style={styles.heading}>Billing + Release</h2>
+      <h2 style={styles.heading}>Billing + Release + Margin</h2>
       {ros.map((ro) => {
         const financials = getROFinancials(ro);
         const paymentForm = paymentForms[ro.id] || DEFAULT_PAYMENT_FORM;
+        const partsCostActual = round2(parts.filter((p) => p.roNumber === ro.roNumber && p.status !== 'Cancelled').reduce((sum, p) => sum + (p.qty * p.unitCost), 0));
+        const grossProfit = round2(financials.total - partsCostActual);
+        const margin = financials.total > 0 ? round2((grossProfit / financials.total) * 100) : 0;
         return (
           <div key={ro.id} style={styles.cardBlock}>
             <div style={styles.rowBetween}>
@@ -1119,11 +1371,13 @@ export default function App() {
               </div>
             </div>
             <div style={{ ...styles.summaryGrid, marginTop: 12 }}>
-              <div style={styles.metricMini}><div style={styles.mutedLabel}>Labor</div><strong>₱{financials.labor.toLocaleString()}</strong></div>
-              <div style={styles.metricMini}><div style={styles.mutedLabel}>Parts</div><strong>₱{financials.parts.toLocaleString()}</strong></div>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Labor Revenue</div><strong>₱{financials.labor.toLocaleString()}</strong></div>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Parts Revenue</div><strong>₱{financials.parts.toLocaleString()}</strong></div>
               <div style={styles.metricMini}><div style={styles.mutedLabel}>Total</div><strong>₱{financials.total.toLocaleString()}</strong></div>
               <div style={styles.metricMini}><div style={styles.mutedLabel}>Paid</div><strong>₱{financials.paid.toLocaleString()}</strong></div>
               <div style={styles.metricMini}><div style={styles.mutedLabel}>Balance</div><strong>₱{financials.balance.toLocaleString()}</strong></div>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Gross Profit</div><strong>₱{grossProfit.toLocaleString()}</strong></div>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Margin %</div><strong>{margin}%</strong></div>
             </div>
             <div style={{ marginTop: 14 }}>
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Payment Entry</div>
@@ -1156,6 +1410,72 @@ export default function App() {
     </div>
   );
 
+  const PurchasingView = () => (
+    <div>
+      <h2 style={styles.heading}>Suppliers + Purchasing</h2>
+      <div style={styles.shopGrid}>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Add Supplier</div>
+          <div style={styles.formGrid}>
+            <input style={styles.input} placeholder="Supplier name" value={supplierForm.name} onChange={(e) => setSupplierForm((p) => ({ ...p, name: e.target.value }))} />
+            <input style={styles.input} placeholder="Contact person" value={supplierForm.contactPerson} onChange={(e) => setSupplierForm((p) => ({ ...p, contactPerson: e.target.value }))} />
+            <input style={styles.input} placeholder="Phone" value={supplierForm.phone} onChange={(e) => setSupplierForm((p) => ({ ...p, phone: e.target.value }))} />
+            <input style={styles.input} placeholder="Notes" value={supplierForm.notes} onChange={(e) => setSupplierForm((p) => ({ ...p, notes: e.target.value }))} />
+          </div>
+          <div style={{ marginTop: 10 }}><button style={styles.primaryButton} onClick={createSupplier}>Add Supplier</button></div>
+        </div>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Supplier Directory</div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {suppliers.map((s) => (
+              <div key={s.id} style={styles.logRow}>
+                <div style={{ fontWeight: 600 }}>{s.name}</div>
+                <div style={{ fontSize: 13, color: '#6b7280' }}>{s.contactPerson} • {s.phone}</div>
+                <div style={{ fontSize: 13 }}>{s.notes}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const InventoryView = () => (
+    <div>
+      <h2 style={styles.heading}>Inventory</h2>
+      <div style={styles.cardBlock}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Add Inventory Item</div>
+        <div style={styles.formGrid}>
+          <input style={styles.input} placeholder="Part name" value={inventoryForm.partName} onChange={(e) => setInventoryForm((p) => ({ ...p, partName: e.target.value }))} />
+          <input style={styles.input} placeholder="SKU" value={inventoryForm.sku} onChange={(e) => setInventoryForm((p) => ({ ...p, sku: e.target.value }))} />
+          <input style={styles.input} type="number" placeholder="Qty on hand" value={inventoryForm.quantityOnHand} onChange={(e) => setInventoryForm((p) => ({ ...p, quantityOnHand: e.target.value }))} />
+          <input style={styles.input} type="number" placeholder="Reorder level" value={inventoryForm.reorderLevel} onChange={(e) => setInventoryForm((p) => ({ ...p, reorderLevel: e.target.value }))} />
+          <input style={styles.input} type="number" placeholder="Avg cost" value={inventoryForm.avgCost} onChange={(e) => setInventoryForm((p) => ({ ...p, avgCost: e.target.value }))} />
+          <input style={styles.input} placeholder="Location" value={inventoryForm.location} onChange={(e) => setInventoryForm((p) => ({ ...p, location: e.target.value }))} />
+        </div>
+        <div style={{ marginTop: 10 }}><button style={styles.primaryButton} onClick={createInventoryItem}>Add Inventory</button></div>
+      </div>
+
+      <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
+        {inventory.map((item) => (
+          <div key={item.id} style={styles.cardBlock}>
+            <div style={styles.rowBetween}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{item.partName}</div>
+                <div style={{ color: '#6b7280', fontSize: 13 }}>{item.sku} • {item.location}</div>
+              </div>
+              <div style={styles.wrapRow}>
+                <span style={item.quantityOnHand <= item.reorderLevel ? styles.badgeDanger : styles.badgeGood}>QOH {item.quantityOnHand}</span>
+                <button style={styles.secondaryButton} onClick={() => restockInventory(item.id, 5)}>+5 Restock</button>
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 14 }}>Reorder Level: {item.reorderLevel} • Avg Cost: ₱{item.avgCost.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   const HistoryView = () => (
     <div>
       <div style={styles.rowBetween}>
@@ -1180,11 +1500,7 @@ export default function App() {
                 <span style={record.totalReturnJobs > 0 ? styles.badgeDanger : styles.badgeBlue}>{record.totalReturnJobs} return jobs</span>
               </div>
             </div>
-            {record.repeatIssueCategories.length > 0 && (
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {record.repeatIssueCategories.map((cat) => <span key={cat} style={styles.badgeWarn}>{cat} repeat issue</span>)}
-              </div>
-            )}
+            {record.repeatIssueCategories.length > 0 && <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>{record.repeatIssueCategories.map((cat) => <span key={cat} style={styles.badgeWarn}>{cat} repeat issue</span>)}</div>}
             <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
               {roList.slice().sort((a, b) => b.createdAt - a.createdAt).map((ro) => (
                 <div key={ro.id} style={styles.innerBlock}>
@@ -1201,30 +1517,14 @@ export default function App() {
                   {ro.isReturnJob && <div style={{ marginTop: 6, color: '#dc2626', fontWeight: 600 }}>Return Reason: {ro.returnReason || 'No reason specified'}</div>}
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Approved Work</div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {ro.workLines.filter((w) => w.approvalStatus !== 'Declined').map((w) => <span key={w.id} style={styles.badgeMuted}>{w.label}</span>)}
-                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{ro.workLines.filter((w) => w.approvalStatus !== 'Declined').map((w) => <span key={w.id} style={styles.badgeMuted}>{w.label}</span>)}</div>
                   </div>
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Parts Replaced</div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {parts.filter((p) => p.roNumber === ro.roNumber && p.status !== 'Cancelled').map((p) => <span key={p.id} style={styles.badgeBlue}>{p.partName || 'Unnamed Part'} x{p.qty}</span>)}
-                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{parts.filter((p) => p.roNumber === ro.roNumber && p.status !== 'Cancelled').map((p) => <span key={p.id} style={styles.badgeBlue}>{p.partName || 'Unnamed Part'} x{p.qty}</span>)}</div>
                   </div>
-                  {ro.inspectionPhotos.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Inspection Photos</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {ro.inspectionPhotos.map((photo) => <span key={photo.id} style={styles.badgeMuted}>{photo.label}</span>)}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ ...styles.summaryRow, marginTop: 10 }}>
-                    {(() => {
-                      const f = getROFinancials(ro);
-                      return <><span>Total: ₱{f.total.toLocaleString()}</span><span>Paid: ₱{f.paid.toLocaleString()}</span><span>Balance: ₱{f.balance.toLocaleString()}</span></>;
-                    })()}
-                  </div>
+                  {ro.inspectionPhotos.length > 0 && <div style={{ marginTop: 10 }}><div style={{ fontWeight: 600, marginBottom: 6 }}>Inspection Photos</div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{ro.inspectionPhotos.map((photo) => <span key={photo.id} style={styles.badgeMuted}>{photo.label}</span>)}</div></div>}
+                  <div style={{ ...styles.summaryRow, marginTop: 10 }}>{(() => { const f = getROFinancials(ro); return <><span>Total: ₱{f.total.toLocaleString()}</span><span>Paid: ₱{f.paid.toLocaleString()}</span><span>Balance: ₱{f.balance.toLocaleString()}</span></>; })()}</div>
                 </div>
               ))}
             </div>
@@ -1241,7 +1541,7 @@ export default function App() {
       <div style={styles.loginWrap}>
         <div style={styles.loginCard}>
           <h1 style={styles.title}>Workshop System</h1>
-          <p style={{ marginTop: 0, color: '#6b7280' }}>Phase 8 photos, live tech tracking, printable billing, and SMS-ready flow.</p>
+          <p style={{ marginTop: 0, color: '#6b7280' }}>Phase 9 purchasing, inventory, margin, KPI, and owner dashboard.</p>
           <button style={styles.primaryButton} onClick={() => setUser(USERS[0])}>Login as {USERS[0].role}</button>
         </div>
       </div>
@@ -1262,6 +1562,8 @@ export default function App() {
         <NavButton icon={<Users size={16} />} label="Tech" onClick={() => setView('tech')} />
         <NavButton icon={<Receipt size={16} />} label="Billing" onClick={() => setView('billing')} />
         <NavButton icon={<History size={16} />} label="History" onClick={() => setView('history')} />
+        <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" onClick={() => setView('purchasing')} />
+        <NavButton icon={<Warehouse size={16} />} label="Inventory" onClick={() => setView('inventory')} />
       </aside>
       <main style={styles.main}>
         {view === 'dashboard' && <DashboardView />}
@@ -1273,6 +1575,8 @@ export default function App() {
         {view === 'tech' && <TechView />}
         {view === 'billing' && <BillingView />}
         {view === 'history' && <HistoryView />}
+        {view === 'purchasing' && <PurchasingView />}
+        {view === 'inventory' && <InventoryView />}
       </main>
     </div>
   );
@@ -1290,6 +1594,10 @@ function NavButton({ icon, label, onClick }: { icon: React.ReactNode; label: str
 
 function MetricCard({ title, value }: { title: string; value: number }) {
   return <div style={styles.metricCard}><div style={{ color: '#6b7280', fontSize: 13 }}>{title}</div><div style={{ fontSize: 28, fontWeight: 700 }}>{value}</div></div>;
+}
+
+function MoneyCard({ title, value }: { title: string; value: number }) {
+  return <div style={styles.metricCard}><div style={{ color: '#6b7280', fontSize: 13 }}>{title}</div><div style={{ fontSize: 28, fontWeight: 700 }}>₱{value.toLocaleString()}</div></div>;
 }
 
 function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
