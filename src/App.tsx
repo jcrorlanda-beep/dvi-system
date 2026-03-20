@@ -22,6 +22,7 @@ import {
   RotateCcw,
   UserCog,
   Lock,
+  Image,
 } from "lucide-react";
 
 /* =========================
@@ -50,7 +51,17 @@ type User = {
 };
 
 type Priority = "Low" | "Normal" | "High" | "Urgent";
-type ROStatus = "Open" | "In Progress" | "Waiting Parts" | "Quality Check" | "Completed";
+type ROStatus =
+  | "Draft"
+  | "Waiting Inspection"
+  | "Waiting Approval"
+  | "Approved / Ready to Work"
+  | "In Progress"
+  | "Waiting Parts"
+  | "Quality Check"
+  | "Ready Release"
+  | "Released"
+  | "Closed";
 type WorkLineStatus =
   | "Pending"
   | "Approved"
@@ -90,6 +101,51 @@ type InspectionPhoto = {
   url: string;
 };
 
+type WorkLinePhoto = {
+  id: string;
+  label: string;
+  url: string;
+  stage: "Before" | "During" | "After";
+};
+
+type InspectionTakeNote = {
+  id: string;
+  title: string;
+  note: string;
+  photoUrl: string;
+};
+
+type ArrivalCheckKey = "lights" | "brokenGlass" | "wipers" | "hornCondition";
+type ArrivalCheckStatus = "Not Checked" | "OK" | "Needs Attention";
+
+type ArrivalCheckItem = {
+  status: ArrivalCheckStatus;
+  note: string;
+};
+
+type ArrivalCheckMap = Record<ArrivalCheckKey, ArrivalCheckItem>;
+
+type SmsGatewaySettings = {
+  enabled: boolean;
+  endpoint: string;
+  apiKey: string;
+  deviceName: string;
+  useClipboardFallback: boolean;
+};
+
+type AssignmentRole = "Primary" | "Supporting";
+
+type TechnicianAssignmentLog = {
+  id: string;
+  technicianName: string;
+  role: AssignmentRole;
+  assignedAt: number;
+  assignedBy: string;
+  removedAt?: number;
+  removedBy?: string;
+  note: string;
+};
+
 type CustomerDecisionEntry = {
   id: string;
   timestamp: number;
@@ -121,7 +177,11 @@ type ROWorkLine = {
   id: string;
   label: string;
   category: string;
+  priority: Priority;
   technician: string;
+  primaryTechnician: string;
+  supportingTechnicians: string[];
+  assignmentLog: TechnicianAssignmentLog[];
   assignedBy: string;
   finishedBy: string;
   estimatedHours: number;
@@ -137,6 +197,9 @@ type ROWorkLine = {
   smsApprovalSentAt?: number;
   smsApprovalStatus: "Not Sent" | "Sent" | "Approved" | "Declined";
   sessions: TimeSession[];
+  startedAt?: number;
+  pausedAt?: number;
+  photos: WorkLinePhoto[];
   overrideNote: string;
 };
 
@@ -145,21 +208,35 @@ type RepairOrder = {
   roNumber: string;
   plate: string;
   vehicle: string;
+  vehicleMake: string;
+  vehicleModel: string;
+  vehicleYear: string;
   customer: string;
+  customerPhone: string;
+  odometer: string;
   bay: string;
   priority: Priority;
   status: ROStatus;
   createdAt: number;
+  inspectionCompleted: boolean;
+  qcPassed: boolean;
+  closedAt?: number;
   workLines: ROWorkLine[];
   invoiceStatus: InvoiceStatus;
   releaseStatus: ReleaseStatus;
   payments: PaymentEntry[];
   invoiceNote: string;
+  invoiceNumber?: string;
+  customerVisibleFindings: string;
+  recommendationsSummary: string;
   releaseChecklist: ReleaseChecklist;
   isReturnJob: boolean;
   returnReason: string;
   linkedPreviousRoId?: string;
   inspectionPhotos: InspectionPhoto[];
+  initialExteriorPhotos: InspectionPhoto[];
+  takeNotes: InspectionTakeNote[];
+  arrivalChecks: ArrivalCheckMap;
   serviceAdvisorNotes: string;
   softLocked: boolean;
   lockOverrideReason: string;
@@ -249,7 +326,12 @@ type InspectionIssueDefinition = {
 type InspectionForm = {
   plate: string;
   vehicle: string;
+  vehicleMake: string;
+  vehicleModel: string;
+  vehicleYear: string;
   customer: string;
+  customerPhone: string;
+  odometer: string;
   bay: string;
   priority: Priority;
   issues: InspectionSelection;
@@ -257,6 +339,11 @@ type InspectionForm = {
   returnReason: string;
   linkedPreviousRoId: string;
   inspectionPhotos: InspectionPhoto[];
+  initialExteriorPhotos: InspectionPhoto[];
+  takeNotes: InspectionTakeNote[];
+  arrivalChecks: ArrivalCheckMap;
+  customerVisibleFindings: string;
+  recommendationsSummary: string;
   serviceAdvisorNotes: string;
 };
 
@@ -307,6 +394,10 @@ type CustomerHistoryRecord = {
 
 const USERS: User[] = [{ username: "admin", password: "admin123", role: "Admin" }];
 
+const SHOP_NAME = "Northeast Car Care Centre";
+const SHOP_SLOGAN = "Professional Care For Every Journey";
+const BUILD_VERSION = "Phase 12B — Work Lines + Technician Assignment Core";
+
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
   { id: "t2", name: "Leo", role: "Senior Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -344,10 +435,28 @@ const EMPTY_INSPECTION_SELECTIONS: InspectionSelection = {
   tires: false,
 };
 
+const DEFAULT_ARRIVAL_CHECKS: ArrivalCheckMap = {
+  lights: { status: "Not Checked", note: "" },
+  brokenGlass: { status: "Not Checked", note: "" },
+  wipers: { status: "Not Checked", note: "" },
+  hornCondition: { status: "Not Checked", note: "" },
+};
+
+const createDefaultTakeNotes = (): InspectionTakeNote[] => [
+  { id: "tn-1", title: "Take Note 1", note: "", photoUrl: "" },
+  { id: "tn-2", title: "Take Note 2", note: "", photoUrl: "" },
+  { id: "tn-3", title: "Take Note 3", note: "", photoUrl: "" },
+];
+
 const DEFAULT_INSPECTION_FORM: InspectionForm = {
   plate: "",
   vehicle: "",
+  vehicleMake: "",
+  vehicleModel: "",
+  vehicleYear: "",
   customer: "",
+  customerPhone: "",
+  odometer: "",
   bay: "Bay 1",
   priority: "Normal",
   issues: EMPTY_INSPECTION_SELECTIONS,
@@ -355,6 +464,11 @@ const DEFAULT_INSPECTION_FORM: InspectionForm = {
   returnReason: "",
   linkedPreviousRoId: "",
   inspectionPhotos: [],
+  initialExteriorPhotos: [],
+  takeNotes: createDefaultTakeNotes(),
+  arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS },
+  customerVisibleFindings: "",
+  recommendationsSummary: "",
   serviceAdvisorNotes: "",
 };
 
@@ -371,6 +485,14 @@ const DEFAULT_PAYMENT_FORM: PaymentForm = {
   amount: "",
   method: "Cash",
   note: "",
+};
+
+const DEFAULT_SMS_GATEWAY_SETTINGS: SmsGatewaySettings = {
+  enabled: false,
+  endpoint: "",
+  apiKey: "",
+  deviceName: "Android Gateway",
+  useClipboardFallback: true,
 };
 
 const DEFAULT_SUPPLIER_FORM: SupplierForm = {
@@ -400,7 +522,11 @@ const DEFAULT_WORK_LINE: ROWorkLine = {
   id: "",
   label: "New Job",
   category: "General",
+  priority: "Normal",
   technician: "",
+  primaryTechnician: "",
+  supportingTechnicians: [],
+  assignmentLog: [],
   assignedBy: "",
   finishedBy: "",
   estimatedHours: 1,
@@ -415,6 +541,7 @@ const DEFAULT_WORK_LINE: ROWorkLine = {
   customerDecisionLog: [],
   smsApprovalStatus: "Not Sent",
   sessions: [],
+  photos: [],
   overrideNote: "",
 };
 
@@ -436,6 +563,15 @@ function safeLoad<T>(key: string, fallback: T): T {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function calculateActualHoursFromSessions(sessions: TimeSession[]): number {
@@ -467,14 +603,26 @@ function sumPartsCostForWorkLine(parts: PartRequest[], workLineId?: string): num
   );
 }
 
-function getROStatusFromWorkLines(workLines: ROWorkLine[]): ROStatus {
+function getROStatusFromWorkLines(workLines: ROWorkLine[], ro?: Partial<RepairOrder>): ROStatus {
   const actionable = workLines.filter((w) => w.approvalStatus !== "Declined");
-  if (!actionable.length) return "Open";
-  if (actionable.every((w) => w.status === "Done" || w.status === "Cancelled")) return "Completed";
-  if (actionable.some((w) => w.status === "Quality Check")) return "Quality Check";
-  if (actionable.some((w) => w.status === "Waiting Parts")) return "Waiting Parts";
-  if (actionable.some((w) => ["In Progress", "Approved", "Ready"].includes(w.status))) return "In Progress";
-  return "Open";
+  const approved = actionable.filter((w) => ["Approved", "Partially Approved"].includes(w.approvalStatus));
+  const pendingApproval = actionable.some((w) => w.approvalStatus === "Pending Approval");
+  const anyInProgress = actionable.some((w) => w.status === "In Progress");
+  const anyWaitingParts = actionable.some((w) => w.status === "Waiting Parts");
+  const anyQualityCheck = actionable.some((w) => w.status === "Quality Check");
+  const allDone = actionable.length > 0 && actionable.every((w) => w.status === "Done" || w.status === "Cancelled");
+  const hasSeedData = Boolean(ro?.plate || ro?.vehicle || ro?.customer || actionable.length > 0);
+
+  if (ro?.closedAt) return "Closed";
+  if (ro?.releaseChecklist?.releasedAt || ro?.releaseStatus === "Released") return "Released";
+  if (!ro?.inspectionCompleted) return hasSeedData ? "Waiting Inspection" : "Draft";
+  if (pendingApproval || (actionable.length > 0 && approved.length === 0 && !allDone)) return "Waiting Approval";
+  if (anyWaitingParts) return "Waiting Parts";
+  if (anyInProgress) return "In Progress";
+  if (anyQualityCheck || (allDone && !ro?.qcPassed)) return "Quality Check";
+  if (allDone && ro?.qcPassed) return "Ready Release";
+  if (approved.length > 0) return "Approved / Ready to Work";
+  return "Waiting Approval";
 }
 
 function getInvoiceStatus(paymentsTotal: number, invoiceTotal: number): InvoiceStatus {
@@ -588,6 +736,126 @@ function getSupplierName(suppliers: Supplier[], id?: string) {
   return suppliers.find((s) => s.id === id)?.name || "Not selected";
 }
 
+function getPrimaryTechnicianName(line: ROWorkLine): string {
+  return (line.primaryTechnician || line.technician || "").trim();
+}
+
+function getSupportingTechnicianNames(line: ROWorkLine): string[] {
+  const primary = getPrimaryTechnicianName(line).toLowerCase();
+  const raw = Array.isArray(line.supportingTechnicians) ? line.supportingTechnicians : [];
+  return Array.from(new Set(raw.map((name) => name.trim()).filter(Boolean))).filter((name) => name.toLowerCase() !== primary);
+}
+
+function lineHasTechnician(line: ROWorkLine, technicianName: string): boolean {
+  const name = technicianName.trim().toLowerCase();
+  if (!name) return false;
+  return (
+    getPrimaryTechnicianName(line).toLowerCase() === name ||
+    getSupportingTechnicianNames(line).some((support) => support.toLowerCase() === name)
+  );
+}
+
+function normalizeLegacyRepairOrder(ro: Partial<RepairOrder>): RepairOrder {
+  const normalizedWorkLines = (ro.workLines || []).map((rawLine) => {
+    const primaryTechnician = ((rawLine as any).primaryTechnician || rawLine.technician || "").trim();
+    const supportingTechnicians = Array.isArray((rawLine as any).supportingTechnicians)
+      ? Array.from(new Set(((rawLine as any).supportingTechnicians as string[]).map((name) => String(name).trim()).filter(Boolean)))
+          .filter((name) => name.toLowerCase() !== primaryTechnician.toLowerCase())
+      : [];
+    const assignmentLog = Array.isArray((rawLine as any).assignmentLog)
+      ? ((rawLine as any).assignmentLog as TechnicianAssignmentLog[])
+      : primaryTechnician
+      ? [{
+          id: `legacy-${rawLine.id || uid()}`,
+          technicianName: primaryTechnician,
+          role: "Primary" as AssignmentRole,
+          assignedAt: ro.createdAt || Date.now(),
+          assignedBy: (rawLine as any).assignedBy || "System",
+          note: "Imported from legacy technician field.",
+        }]
+      : [];
+
+    return getWorkLineEstimate({
+      ...DEFAULT_WORK_LINE,
+      ...rawLine,
+      priority: ((rawLine as any).priority as Priority) || "Normal",
+      technician: primaryTechnician,
+      primaryTechnician,
+      supportingTechnicians,
+      assignmentLog,
+      sessions: Array.isArray(rawLine.sessions) ? rawLine.sessions : [],
+      photos: Array.isArray((rawLine as any).photos) ? (rawLine as any).photos : [],
+    });
+  });
+
+  const inspectionCompleted = Boolean(
+    ro.inspectionCompleted ||
+      (ro.inspectionPhotos?.length || 0) ||
+      (ro.initialExteriorPhotos?.length || 0) ||
+      (ro.takeNotes || []).some((item) => item.note || item.photoUrl) ||
+      normalizedWorkLines.length > 0 ||
+      ro.vehicle ||
+      ro.vehicleMake ||
+      ro.vehicleModel ||
+      ro.vehicleYear ||
+      ro.serviceAdvisorNotes
+  );
+
+  const normalizedVehicle =
+    ro.vehicle || buildInspectionVehicleLabel({
+      ...DEFAULT_INSPECTION_FORM,
+      vehicle: ro.vehicle || "",
+      vehicleMake: ro.vehicleMake || "",
+      vehicleModel: ro.vehicleModel || "",
+      vehicleYear: ro.vehicleYear || "",
+    });
+
+  const normalized: RepairOrder = {
+    id: ro.id || uid(),
+    roNumber: ro.roNumber || `RO-${Date.now()}`,
+    plate: ro.plate || "",
+    vehicle: normalizedVehicle || "",
+    vehicleMake: ro.vehicleMake || "",
+    vehicleModel: ro.vehicleModel || "",
+    vehicleYear: ro.vehicleYear || "",
+    customer: ro.customer || "",
+    customerPhone: ro.customerPhone || "",
+    odometer: ro.odometer || "",
+    bay: ro.bay || "Bay 1",
+    priority: ro.priority || "Normal",
+    status: "Draft",
+    createdAt: ro.createdAt || Date.now(),
+    inspectionCompleted,
+    qcPassed: Boolean(ro.qcPassed),
+    closedAt: ro.closedAt,
+    workLines: normalizedWorkLines,
+    invoiceStatus: ro.invoiceStatus || "Draft",
+    releaseStatus: ro.releaseStatus || "Hold",
+    payments: Array.isArray(ro.payments) ? ro.payments : [],
+    invoiceNote: ro.invoiceNote || "",
+    invoiceNumber: ro.invoiceNumber,
+    customerVisibleFindings: ro.customerVisibleFindings || "",
+    recommendationsSummary: ro.recommendationsSummary || normalizedWorkLines.map((line) => line.label).join(", "),
+    releaseChecklist: { ...DEFAULT_RELEASE_CHECKLIST, ...(ro.releaseChecklist || {}) },
+    isReturnJob: Boolean(ro.isReturnJob),
+    returnReason: ro.returnReason || "",
+    linkedPreviousRoId: ro.linkedPreviousRoId,
+    inspectionPhotos: Array.isArray(ro.inspectionPhotos) ? ro.inspectionPhotos : [],
+    initialExteriorPhotos: Array.isArray(ro.initialExteriorPhotos) ? ro.initialExteriorPhotos : [],
+    takeNotes: Array.isArray(ro.takeNotes) && ro.takeNotes.length ? ro.takeNotes : createDefaultTakeNotes(),
+    arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS, ...(ro.arrivalChecks || {}) },
+    serviceAdvisorNotes: ro.serviceAdvisorNotes || "",
+    softLocked: Boolean(ro.softLocked),
+    lockOverrideReason: ro.lockOverrideReason || "",
+  };
+
+  const fin = getROFinancials(normalized);
+  normalized.invoiceStatus = getInvoiceStatus(fin.paid, fin.total);
+  normalized.releaseStatus = getReleaseStatus(normalized.invoiceStatus, normalized.releaseChecklist);
+  normalized.status = getROStatusFromWorkLines(normalized.workLines, normalized);
+  return normalized;
+}
+
 function buildManagerAlerts(ros: RepairOrder[]): ManagerAlert[] {
   const alerts: ManagerAlert[] = [];
 
@@ -657,10 +925,14 @@ function buildDailySnapshot(ros: RepairOrder[]) {
 }
 
 function getROBadgeStyle(status: ROStatus): React.CSSProperties {
-  if (status === "Completed") return styles.badgeGood;
+  if (["Closed", "Released"].includes(status)) return styles.badgeGood;
+  if (status === "Ready Release") return styles.badgeBlue;
   if (status === "Waiting Parts") return styles.badgeWarn;
   if (status === "In Progress") return styles.badgeBlue;
   if (status === "Quality Check") return styles.badgePurple;
+  if (status === "Approved / Ready to Work") return styles.badgeBlue;
+  if (status === "Waiting Approval") return styles.badgeWarn;
+  if (status === "Waiting Inspection") return styles.badgeMuted;
   return styles.badgeMuted;
 }
 
@@ -669,6 +941,227 @@ function getPriorityStyle(priority: Priority): React.CSSProperties {
   if (priority === "High") return styles.badgeWarn;
   if (priority === "Normal") return styles.badgeBlue;
   return styles.badgeMuted;
+}
+
+
+function buildInspectionVehicleLabel(form: InspectionForm): string {
+  const composed = [form.vehicleYear, form.vehicleMake, form.vehicleModel]
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .join(" ");
+  return composed || form.vehicle.trim();
+}
+
+function renderArrivalCheckLabel(key: ArrivalCheckKey): string {
+  if (key === "brokenGlass") return "Broken Glass";
+  if (key === "hornCondition") return "Horn Condition";
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+
+function buildSmsApprovalMessage(ro: RepairOrder, line: ROWorkLine) {
+  return `AUTO REPAIR APPROVAL
+
+RO: ${ro.roNumber}
+Customer: ${ro.customer || "-"}
+Vehicle: ${ro.vehicle || "-"}
+Plate: ${ro.plate || "-"}
+Phone: ${ro.customerPhone || "-"}
+
+Work Line: ${line.label}
+Category: ${line.category}
+Estimate: ₱${line.estimateTotal.toLocaleString()}
+
+Reply YES to approve or NO to decline.`;
+}
+
+async function sendSmsThroughGateway(
+  settings: SmsGatewaySettings,
+  phone: string,
+  message: string,
+) {
+  const trimmedPhone = phone.trim();
+  if (!trimmedPhone) {
+    throw new Error("No customer phone number saved for this RO.");
+  }
+
+  if (!settings.enabled || !settings.endpoint.trim()) {
+    throw new Error("SMS gateway is not enabled.");
+  }
+
+  const response = await fetch(settings.endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(settings.apiKey.trim() ? { Authorization: `Bearer ${settings.apiKey.trim()}` } : {}),
+    },
+    body: JSON.stringify({
+      device: settings.deviceName.trim() || "Android Gateway",
+      to: trimmedPhone,
+      message,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gateway request failed (${response.status})`);
+  }
+}
+
+async function copySmsToClipboard(message: string) {
+  await navigator.clipboard.writeText(message);
+}
+
+function printRepairOrder(ro: RepairOrder) {
+  const financials = getROFinancials(ro);
+  const popup = window.open("", "_blank", "width=980,height=760");
+  if (!popup) return;
+
+  const workLineRows = ro.workLines
+    .map(
+      (line) => `
+        <tr>
+          <td style="padding:8px;border:1px solid #ddd;">${line.label}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${line.category}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${line.technician || "-"}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${line.approvalStatus}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${line.status}</td>
+          <td style="padding:8px;border:1px solid #ddd;text-align:right;">₱${line.estimateTotal.toLocaleString()}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  const inspectionPhotos = ro.inspectionPhotos.length
+    ? ro.inspectionPhotos
+        .map(
+          (photo) => `
+            <div style="padding:6px 0;border-bottom:1px solid #eee;">
+              <strong>${photo.label}</strong><br/>
+              <span>${photo.url || "No URL provided"}</span>
+            </div>
+          `,
+        )
+        .join("")
+    : "<div>No inspection photos</div>";
+
+  const exteriorPhotos = ro.initialExteriorPhotos?.length
+    ? ro.initialExteriorPhotos
+        .map(
+          (photo) => `
+            <div style="padding:6px 0;border-bottom:1px solid #eee;">
+              <strong>${photo.label}</strong><br/>
+              <span>${photo.url || "No URL provided"}</span>
+            </div>
+          `,
+        )
+        .join("")
+    : "<div>No initial exterior photos</div>";
+
+  const takeNoteRows = ro.takeNotes?.length
+    ? ro.takeNotes
+        .map(
+          (item) => `
+            <div style="padding:8px 0;border-bottom:1px solid #eee;">
+              <strong>${item.title}</strong><br/>
+              <div>${item.note || "No note"}</div>
+              <div style="font-size:12px;color:#6b7280;">${item.photoUrl || "No photo attached"}</div>
+            </div>
+          `,
+        )
+        .join("")
+    : "<div>No take notes</div>";
+
+  const arrivalRows = Object.entries(ro.arrivalChecks || {})
+    .map(
+      ([key, value]) => `
+        <tr>
+          <td style="padding:8px;border:1px solid #ddd;">${renderArrivalCheckLabel(key as ArrivalCheckKey)}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${value.status}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${value.note || "-"}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${ro.roNumber}</title>
+      </head>
+      <body style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111827;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+          <div>
+            <h1 style="margin:0 0 6px 0;">Repair Order Report</h1>
+            <div style="font-size:14px;color:#4b5563;">${ro.roNumber}</div>
+          </div>
+          <div style="text-align:right;">
+            <div><strong>Status:</strong> ${ro.status}</div>
+            <div><strong>Invoice:</strong> ${ro.invoiceStatus}</div>
+            <div><strong>Release:</strong> ${ro.releaseStatus}</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:20px;">
+          <div><strong>Customer:</strong> ${ro.customer || "-"}</div>
+          <div><strong>Phone:</strong> ${ro.customerPhone || "-"}</div>
+          <div><strong>Vehicle:</strong> ${ro.vehicle || "-"}</div>
+          <div><strong>Plate:</strong> ${ro.plate || "-"}</div>
+          <div><strong>Bay:</strong> ${ro.bay}</div>
+          <div><strong>Priority:</strong> ${ro.priority}</div>
+        </div>
+
+        <h2 style="margin-bottom:10px;">Work Lines</h2>
+        <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Work</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Category</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Technician</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Approval</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Status</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:right;">Estimate</th>
+            </tr>
+          </thead>
+          <tbody>${workLineRows}</tbody>
+        </table>
+
+        <h2 style="margin-bottom:10px;">Financial Summary</h2>
+        <div style="margin-bottom:8px;"><strong>Labor:</strong> ₱${financials.labor.toLocaleString()}</div>
+        <div style="margin-bottom:8px;"><strong>Parts:</strong> ₱${financials.parts.toLocaleString()}</div>
+        <div style="margin-bottom:8px;"><strong>Total:</strong> ₱${financials.total.toLocaleString()}</div>
+        <div style="margin-bottom:8px;"><strong>Paid:</strong> ₱${financials.paid.toLocaleString()}</div>
+        <div style="margin-bottom:20px;"><strong>Balance:</strong> ₱${financials.balance.toLocaleString()}</div>
+
+        <h2 style="margin-bottom:10px;">Arrival Check</h2>
+        <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Check</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Status</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Note</th>
+            </tr>
+          </thead>
+          <tbody>${arrivalRows}</tbody>
+        </table>
+
+        <h2 style="margin-bottom:10px;">Take Notes</h2>
+        <div style="margin-bottom:20px;">${takeNoteRows}</div>
+
+        <h2 style="margin-bottom:10px;">Service Advisor Notes</h2>
+        <div style="margin-bottom:20px;">${ro.serviceAdvisorNotes || "No notes"}</div>
+
+        <h2 style="margin-bottom:10px;">Initial Exterior Photos</h2>
+        <div style="margin-bottom:20px;">${exteriorPhotos}</div>
+
+        <h2 style="margin-bottom:10px;">Inspection Photos</h2>
+        <div>${inspectionPhotos}</div>
+      </body>
+    </html>
+  `);
+
+  popup.document.close();
+  popup.focus();
+  popup.print();
 }
 
 /* =========================
@@ -681,6 +1174,9 @@ export default function App() {
 
   const [inspectionForm, setInspectionForm] = useState<InspectionForm>(DEFAULT_INSPECTION_FORM);
   const [paymentForms, setPaymentForms] = useState<Record<string, PaymentForm>>({});
+  const [smsGatewaySettings, setSmsGatewaySettings] = useState<SmsGatewaySettings>(
+    () => safeLoad("phase11a_sms_gateway", DEFAULT_SMS_GATEWAY_SETTINGS),
+  );
   const [historySearch, setHistorySearch] = useState("");
 
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>(
@@ -699,7 +1195,7 @@ export default function App() {
   const [bidForms, setBidForms] = useState<Record<string, BidForm>>({});
   const [inventoryForm, setInventoryForm] = useState<InventoryForm>(DEFAULT_INVENTORY_FORM);
 
-  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad("phase10_ros", []));
+  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>("phase10_ros", []).map((ro) => normalizeLegacyRepairOrder(ro)));
   const [parts, setParts] = useState<PartRequest[]>(() => safeLoad("phase10_parts", []));
 
   useEffect(() => {
@@ -726,6 +1222,10 @@ export default function App() {
     localStorage.setItem("phase10_inventory", JSON.stringify(inventory));
   }, [inventory]);
 
+  useEffect(() => {
+    localStorage.setItem("phase11a_sms_gateway", JSON.stringify(smsGatewaySettings));
+  }, [smsGatewaySettings]);
+
   const syncTechniciansFromROs = (nextRos: RepairOrder[]) => {
     setTechnicians((prev) =>
       prev.map((tech) => {
@@ -736,9 +1236,9 @@ export default function App() {
 
         nextRos.forEach((ro) => {
           ro.workLines.forEach((line) => {
-            if (line.technician.trim() !== tech.name) return;
+            if (!lineHasTechnician(line, tech.name)) return;
             if (line.status === "Done") completedJobs += 1;
-            if (line.status === "In Progress") {
+            if (line.status === "In Progress" && !currentRoNumber) {
               currentRoNumber = ro.roNumber;
               currentWorkLine = line.label;
               currentStartedAt = line.startedAt;
@@ -789,16 +1289,11 @@ export default function App() {
       });
 
       const actionable = recomputedLines.filter((w) => w.approvalStatus !== "Declined");
-      let roStatus = getROStatusFromWorkLines(recomputedLines);
-
-      if (actionable.length > 0 && actionable.every((w) => w.status === "Done" || w.status === "Cancelled")) {
-        roStatus = "Completed";
-      } else if (
-        actionable.length > 0 &&
-        actionable.every((w) => ["Done", "Cancelled", "Quality Check"].includes(w.status))
-      ) {
-        roStatus = "Quality Check";
-      }
+      const normalizedInspectionCompleted = ro.inspectionCompleted || Boolean((ro.inspectionPhotos?.length || 0) || (ro.initialExteriorPhotos?.length || 0) || (ro.takeNotes || []).some((item) => item.note || item.photoUrl) || actionable.length > 0 || ro.vehicle || ro.vehicleMake || ro.vehicleModel || ro.vehicleYear || ro.serviceAdvisorNotes);
+      let roStatus = getROStatusFromWorkLines(recomputedLines, {
+        ...ro,
+        inspectionCompleted: normalizedInspectionCompleted,
+      });
 
       const financials = getROFinancials({ ...ro, workLines: recomputedLines });
       const invoiceStatus = getInvoiceStatus(financials.paid, financials.total);
@@ -811,6 +1306,7 @@ export default function App() {
         status: roStatus,
         invoiceStatus,
         releaseStatus,
+        inspectionCompleted: normalizedInspectionCompleted,
         softLocked,
       };
     });
@@ -832,20 +1328,32 @@ export default function App() {
       roNumber: `RO-${Date.now()}`,
       plate: "",
       vehicle: "",
+      vehicleMake: "",
+      vehicleModel: "",
+      vehicleYear: "",
       customer: "",
+      customerPhone: "",
+      odometer: "",
       bay: "Bay 1",
       priority: "Normal",
-      status: "Open",
+      status: "Draft",
       createdAt: Date.now(),
+      inspectionCompleted: false,
+      qcPassed: false,
       workLines: [],
       invoiceStatus: "Draft",
       releaseStatus: "Hold",
       payments: [],
       invoiceNote: "",
+      customerVisibleFindings: "",
+      recommendationsSummary: "",
       releaseChecklist: { ...DEFAULT_RELEASE_CHECKLIST },
       isReturnJob: false,
       returnReason: "",
       inspectionPhotos: [],
+      initialExteriorPhotos: [],
+      takeNotes: createDefaultTakeNotes(),
+      arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS },
       serviceAdvisorNotes: "",
       softLocked: false,
       lockOverrideReason: "",
@@ -855,34 +1363,47 @@ export default function App() {
 
   const createROFromInspection = () => {
     const generatedWorkLines = buildWorkLinesFromInspection(inspectionForm.issues);
+    const computedVehicle = buildInspectionVehicleLabel(inspectionForm);
 
     const nextRO: RepairOrder = {
       id: uid(),
       roNumber: `RO-${Date.now()}`,
       plate: inspectionForm.plate,
-      vehicle: inspectionForm.vehicle,
+      vehicle: computedVehicle,
+      vehicleMake: inspectionForm.vehicleMake,
+      vehicleModel: inspectionForm.vehicleModel,
+      vehicleYear: inspectionForm.vehicleYear,
       customer: inspectionForm.customer,
+      customerPhone: inspectionForm.customerPhone,
+      odometer: inspectionForm.odometer,
       bay: inspectionForm.bay,
       priority: inspectionForm.priority,
-      status: getROStatusFromWorkLines(generatedWorkLines),
+      status: getROStatusFromWorkLines(generatedWorkLines, { inspectionCompleted: true, qcPassed: false, releaseStatus: "Hold", releaseChecklist: { ...DEFAULT_RELEASE_CHECKLIST } }),
       createdAt: Date.now(),
+      inspectionCompleted: true,
+      qcPassed: false,
       workLines: generatedWorkLines,
       invoiceStatus: "Draft",
       releaseStatus: "Hold",
       payments: [],
       invoiceNote: "",
+      customerVisibleFindings: inspectionForm.customerVisibleFindings,
+      recommendationsSummary: inspectionForm.recommendationsSummary,
       releaseChecklist: { ...DEFAULT_RELEASE_CHECKLIST },
       isReturnJob: inspectionForm.isReturnJob,
       returnReason: inspectionForm.returnReason,
       linkedPreviousRoId: inspectionForm.linkedPreviousRoId || undefined,
       inspectionPhotos: inspectionForm.inspectionPhotos,
+      initialExteriorPhotos: inspectionForm.initialExteriorPhotos,
+      takeNotes: inspectionForm.takeNotes,
+      arrivalChecks: inspectionForm.arrivalChecks,
       serviceAdvisorNotes: inspectionForm.serviceAdvisorNotes,
       softLocked: false,
       lockOverrideReason: "",
     };
 
     recomputeAll([nextRO, ...ros], parts);
-    setInspectionForm(DEFAULT_INSPECTION_FORM);
+    setInspectionForm({ ...DEFAULT_INSPECTION_FORM, takeNotes: createDefaultTakeNotes(), arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS } });
     setView("approval");
   };
 
@@ -927,7 +1448,7 @@ export default function App() {
         let nextLine = getWorkLineEstimate({ ...line, ...patch });
 
         if (patch.status === "In Progress") {
-          if (!nextLine.technician.trim()) {
+          if (!getPrimaryTechnicianName(nextLine)) {
             nextLine.overrideNote = nextLine.overrideNote || "Started without assigned technician.";
           }
 
@@ -1000,25 +1521,41 @@ export default function App() {
     recomputeAll(nextRos, parts);
   };
 
-  const sendSmsApproval = (roId: string, wlId: string) => {
-    setRos((prev) =>
-      prev.map((ro) =>
-        ro.id !== roId
-          ? ro
-          : {
-              ...ro,
-              workLines: ro.workLines.map((line) =>
-                line.id === wlId
-                  ? {
-                      ...line,
-                      smsApprovalSentAt: Date.now(),
-                      smsApprovalStatus: "Sent",
-                    }
-                  : line,
-              ),
-            },
-      ),
-    );
+  const sendSmsApproval = async (roId: string, wlId: string) => {
+    const ro = ros.find((item) => item.id === roId);
+    const line = ro?.workLines.find((item) => item.id === wlId);
+    if (!ro || !line) return;
+
+    const nextRos = ros.map((item) => {
+      if (item.id !== roId) return item;
+      return {
+        ...item,
+        workLines: item.workLines.map((workLine) =>
+          workLine.id === wlId
+            ? { ...workLine, smsApprovalSentAt: Date.now(), smsApprovalStatus: "Sent" }
+            : workLine,
+        ),
+      };
+    });
+    setRos(nextRos);
+
+    const message = buildSmsApprovalMessage(ro, line);
+
+    try {
+      await sendSmsThroughGateway(smsGatewaySettings, ro.customerPhone, message);
+      alert("SMS sent through Android gateway.");
+    } catch (error) {
+      if (smsGatewaySettings.useClipboardFallback) {
+        try {
+          await copySmsToClipboard(message);
+          alert("SMS gateway unavailable. Message copied to clipboard instead.");
+        } catch {
+          alert(message);
+        }
+      } else {
+        alert(error instanceof Error ? error.message : "SMS sending failed.");
+      }
+    }
   };
 
   const startWorkLine = (roId: string, wlId: string) => {
@@ -1030,6 +1567,114 @@ export default function App() {
     const line = ro?.workLines.find((w) => w.id === wlId);
     if (!line) return;
     updateWorkLine(roId, wlId, { status: line.partsSummary === "Ready" ? "Ready" : "Approved" });
+  };
+
+  const updatePrimaryTechnician = (roId: string, wlId: string, technicianName: string) => {
+    const trimmed = technicianName.trim();
+    const techProfile = technicians.find((tech) => tech.name.toLowerCase() === trimmed.toLowerCase());
+    if (techProfile?.role === "OJT") {
+      const target = ros.find((ro) => ro.id === roId)?.workLines.find((line) => line.id === wlId);
+      if (!target) return;
+      updateWorkLine(roId, wlId, { overrideNote: "OJT can only be assigned as Supporting Technician." });
+      return;
+    }
+
+    const nextRos = ros.map((ro) => {
+      if (ro.id !== roId) return ro;
+      return {
+        ...ro,
+        workLines: ro.workLines.map((line) => {
+          if (line.id !== wlId) return line;
+          const previousPrimary = getPrimaryTechnicianName(line);
+          const supporting = getSupportingTechnicianNames(line).filter((name) => name.toLowerCase() !== trimmed.toLowerCase());
+          const assignmentLog = [...line.assignmentLog];
+
+          if (previousPrimary && previousPrimary.toLowerCase() !== trimmed.toLowerCase()) {
+            assignmentLog.push({
+              id: uid(),
+              technicianName: previousPrimary,
+              role: "Primary",
+              assignedAt: Date.now(),
+              assignedBy: user?.username || "System",
+              removedAt: Date.now(),
+              removedBy: user?.username || "System",
+              note: "Primary technician replaced.",
+            } as TechnicianAssignmentLog);
+          }
+
+          if (trimmed && previousPrimary.toLowerCase() !== trimmed.toLowerCase()) {
+            assignmentLog.push({
+              id: uid(),
+              technicianName: trimmed,
+              role: "Primary",
+              assignedAt: Date.now(),
+              assignedBy: user?.username || "System",
+              note: previousPrimary ? "Primary technician updated." : "Primary technician assigned.",
+            });
+          }
+
+          return getWorkLineEstimate({
+            ...line,
+            technician: trimmed,
+            primaryTechnician: trimmed,
+            supportingTechnicians: supporting,
+            assignmentLog,
+            assignedBy: trimmed ? (user?.username || "Manager") : line.assignedBy,
+          });
+        }),
+      };
+    });
+
+    recomputeAll(nextRos, parts);
+  };
+
+  const updateSupportingTechnicians = (roId: string, wlId: string, rawValue: string) => {
+    const parsed = Array.from(new Set(rawValue.split(",").map((name) => name.trim()).filter(Boolean)));
+    const nextRos = ros.map((ro) => {
+      if (ro.id !== roId) return ro;
+      return {
+        ...ro,
+        workLines: ro.workLines.map((line) => {
+          if (line.id !== wlId) return line;
+          const primary = getPrimaryTechnicianName(line);
+          const filtered = parsed.filter((name) => name.toLowerCase() !== primary.toLowerCase());
+          const previous = getSupportingTechnicianNames(line);
+          const assignmentLog = [...line.assignmentLog];
+
+          previous.filter((name) => !filtered.some((nextName) => nextName.toLowerCase() === name.toLowerCase())).forEach((name) => {
+            assignmentLog.push({
+              id: uid(),
+              technicianName: name,
+              role: "Supporting",
+              assignedAt: Date.now(),
+              assignedBy: user?.username || "System",
+              removedAt: Date.now(),
+              removedBy: user?.username || "System",
+              note: "Supporting technician removed.",
+            });
+          });
+
+          filtered.filter((name) => !previous.some((oldName) => oldName.toLowerCase() === name.toLowerCase())).forEach((name) => {
+            assignmentLog.push({
+              id: uid(),
+              technicianName: name,
+              role: "Supporting",
+              assignedAt: Date.now(),
+              assignedBy: user?.username || "System",
+              note: "Supporting technician assigned.",
+            });
+          });
+
+          return {
+            ...line,
+            supportingTechnicians: filtered,
+            assignmentLog,
+          };
+        }),
+      };
+    });
+
+    recomputeAll(nextRos, parts);
   };
 
   const createPart = (roNumber: string, wl?: ROWorkLine) => {
@@ -1101,14 +1746,30 @@ export default function App() {
   const finalizeRelease = (roId: string) => {
     setRos((prev) =>
       prev.map((ro) => {
-        if (ro.id !== roId || ro.releaseStatus !== "Ready for Release") return ro;
+        if (ro.id !== roId || ro.releaseStatus !== "Ready for Release" || !ro.qcPassed) return ro;
         return {
           ...ro,
           releaseChecklist: { ...ro.releaseChecklist, releasedAt: Date.now() },
           releaseStatus: "Released",
+          status: "Released",
           softLocked: true,
         };
       }),
+    );
+  };
+
+  const closeRepairOrder = (roId: string) => {
+    recomputeAll(
+      ros.map((ro) =>
+        ro.id !== roId || ro.releaseStatus !== "Released"
+          ? ro
+          : {
+              ...ro,
+              closedAt: Date.now(),
+              status: "Closed",
+            },
+      ),
+      parts,
     );
   };
 
@@ -1135,6 +1796,176 @@ export default function App() {
         p.id === photoId ? { ...p, [field]: value } : p,
       ),
     }));
+  };
+
+  const uploadInspectionPhotoFile = async (photoId: string, file?: File | null) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setInspectionForm((prev) => ({
+      ...prev,
+      inspectionPhotos: prev.inspectionPhotos.map((p) =>
+        p.id === photoId ? { ...p, url: dataUrl, label: p.label || file.name } : p,
+      ),
+    }));
+  };
+
+  const addInitialExteriorPhoto = () => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      initialExteriorPhotos: [
+        ...prev.initialExteriorPhotos,
+        { id: uid(), label: `Exterior Photo ${prev.initialExteriorPhotos.length + 1}`, url: "" },
+      ],
+    }));
+  };
+
+  const updateInitialExteriorPhoto = (photoId: string, field: "label" | "url", value: string) => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      initialExteriorPhotos: prev.initialExteriorPhotos.map((photo) =>
+        photo.id === photoId ? { ...photo, [field]: value } : photo,
+      ),
+    }));
+  };
+
+  const uploadInitialExteriorPhotoFile = async (photoId: string, file?: File | null) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setInspectionForm((prev) => ({
+      ...prev,
+      initialExteriorPhotos: prev.initialExteriorPhotos.map((photo) =>
+        photo.id === photoId ? { ...photo, url: dataUrl, label: photo.label || file.name } : photo,
+      ),
+    }));
+  };
+
+  const updateTakeNote = (
+    takeNoteId: string,
+    field: "title" | "note" | "photoUrl",
+    value: string,
+  ) => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      takeNotes: prev.takeNotes.map((item) =>
+        item.id === takeNoteId ? { ...item, [field]: value } : item,
+      ),
+    }));
+  };
+
+  const uploadTakeNotePhotoFile = async (takeNoteId: string, file?: File | null) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setInspectionForm((prev) => ({
+      ...prev,
+      takeNotes: prev.takeNotes.map((item) =>
+        item.id === takeNoteId ? { ...item, photoUrl: dataUrl, title: item.title || file.name } : item,
+      ),
+    }));
+  };
+
+  const updateArrivalCheck = (
+    key: ArrivalCheckKey,
+    field: "status" | "note",
+    value: string,
+  ) => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      arrivalChecks: {
+        ...prev.arrivalChecks,
+        [key]: {
+          ...prev.arrivalChecks[key],
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const addWorkLinePhoto = (roId: string, workLineId: string) => {
+    const nextRos = ros.map((ro) =>
+      ro.id !== roId
+        ? ro
+        : {
+            ...ro,
+            workLines: ro.workLines.map((line) =>
+              line.id !== workLineId
+                ? line
+                : {
+                    ...line,
+                    photos: [
+                      ...line.photos,
+                      {
+                        id: uid(),
+                        label: `Photo ${line.photos.length + 1}`,
+                        url: "",
+                        stage: "Before",
+                      },
+                    ],
+                  },
+            ),
+          },
+    );
+    setRos(nextRos);
+  };
+
+  const updateWorkLinePhoto = (
+    roId: string,
+    workLineId: string,
+    photoId: string,
+    field: "label" | "url" | "stage",
+    value: string,
+  ) => {
+    const nextRos = ros.map((ro) =>
+      ro.id !== roId
+        ? ro
+        : {
+            ...ro,
+            workLines: ro.workLines.map((line) =>
+              line.id !== workLineId
+                ? line
+                : {
+                    ...line,
+                    photos: line.photos.map((photo) =>
+                      photo.id === photoId ? { ...photo, [field]: value } : photo,
+                    ),
+                  },
+            ),
+          },
+    );
+    setRos(nextRos);
+  };
+
+  const uploadWorkLinePhotoFile = async (
+    roId: string,
+    workLineId: string,
+    photoId: string,
+    file?: File | null,
+  ) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    const nextRos = ros.map((ro) =>
+      ro.id !== roId
+        ? ro
+        : {
+            ...ro,
+            workLines: ro.workLines.map((line) =>
+              line.id !== workLineId
+                ? line
+                : {
+                    ...line,
+                    photos: line.photos.map((photo) =>
+                      photo.id === photoId
+                        ? {
+                            ...photo,
+                            url: dataUrl,
+                            label: photo.label || file.name,
+                          }
+                        : photo,
+                    ),
+                  },
+            ),
+          },
+    );
+    setRos(nextRos);
   };
 
   const createSupplier = () => {
@@ -1257,14 +2088,15 @@ export default function App() {
   const dashboardStats = useMemo(
     () => ({
       totalRO: ros.length,
+      waitingInspection: ros.filter((r) => r.status === "Waiting Inspection").length,
+      waitingApproval: ros.filter((r) => r.status === "Waiting Approval").length,
+      readyToWork: ros.filter((r) => r.status === "Approved / Ready to Work").length,
       inProgress: ros.filter((r) => r.status === "In Progress").length,
       waitingParts: ros.filter((r) => r.status === "Waiting Parts").length,
-      completed: ros.filter((r) => r.status === "Completed").length,
-      pendingApproval: ros.reduce(
-        (sum, ro) => sum + ro.workLines.filter((w) => w.approvalStatus === "Pending Approval").length,
-        0,
-      ),
-      readyRelease: ros.filter((r) => r.releaseStatus === "Ready for Release").length,
+      qualityCheck: ros.filter((r) => r.status === "Quality Check").length,
+      readyRelease: ros.filter((r) => r.status === "Ready Release").length,
+      released: ros.filter((r) => r.status === "Released").length,
+      closed: ros.filter((r) => r.status === "Closed").length,
       returnJobs: ros.filter((r) => r.isReturnJob).length,
     }),
     [ros],
@@ -1291,6 +2123,132 @@ export default function App() {
     );
   }, [ros]);
 
+  const weeklyRevenue = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - 6);
+    return round2(
+      ros.reduce(
+        (sum, ro) =>
+          sum +
+          ro.payments
+            .filter((p) => p.timestamp >= start.getTime())
+            .reduce((s, p) => s + p.amount, 0),
+        0,
+      ),
+    );
+  }, [ros]);
+
+  const monthRevenueBreakdown = useMemo(() => {
+    const now = new Date();
+    return ros.reduce(
+      (acc, ro) => {
+        ro.payments.forEach((p) => {
+          const d = new Date(p.timestamp);
+          if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
+            const financials = getROFinancials(ro);
+            acc.labor += financials.labor;
+            acc.parts += financials.parts;
+          }
+        });
+        return acc;
+      },
+      { labor: 0, parts: 0 },
+    );
+  }, [ros]);
+
+  const openReceivables = useMemo(
+    () => round2(ros.reduce((sum, ro) => sum + getROFinancials(ro).balance, 0)),
+    [ros],
+  );
+
+  const statusPipeline = useMemo(
+    () => ({
+      draft: ros.filter((r) => r.status === "Draft").length,
+      waitingInspection: ros.filter((r) => r.status === "Waiting Inspection").length,
+      waitingApproval: ros.filter((r) => r.status === "Waiting Approval").length,
+      readyToWork: ros.filter((r) => r.status === "Approved / Ready to Work").length,
+      inProgress: ros.filter((r) => r.status === "In Progress").length,
+      waitingParts: ros.filter((r) => r.status === "Waiting Parts").length,
+      qc: ros.filter((r) => r.status === "Quality Check").length,
+      readyRelease: ros.filter((r) => r.status === "Ready Release").length,
+      released: ros.filter((r) => r.status === "Released").length,
+      closed: ros.filter((r) => r.status === "Closed").length,
+    }),
+    [ros],
+  );
+
+  const stuckJobs = useMemo(
+    () =>
+      ros
+        .filter((ro) => {
+          const ageHours = (Date.now() - ro.createdAt) / 3600000;
+          return (
+            (ro.status === "In Progress" && ageHours >= 24) ||
+            (ro.status === "Waiting Parts" && ageHours >= 48) ||
+            (ro.status === "Quality Check" && ageHours >= 12)
+          );
+        })
+        .sort((a, b) => a.createdAt - b.createdAt),
+    [ros],
+  );
+
+  const pendingInvoiceRos = useMemo(
+    () =>
+      ros
+        .filter((ro) => ro.invoiceStatus !== "Paid" || ro.releaseStatus === "Hold")
+        .sort((a, b) => getROFinancials(b).balance - getROFinancials(a).balance),
+    [ros],
+  );
+
+  const topServiceCategories = useMemo(() => {
+    const counts: Record<string, number> = {};
+    ros.forEach((ro) => {
+      ro.workLines
+        .filter((w) => w.approvalStatus !== "Declined")
+        .forEach((w) => {
+          counts[w.category] = (counts[w.category] || 0) + 1;
+        });
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+  }, [ros]);
+
+  const highValueRos = useMemo(
+    () =>
+      ros
+        .map((ro) => ({ ro, total: getROFinancials(ro).total }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5),
+    [ros],
+  );
+
+  const sevenDayRevenue = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }).map((_, idx) => {
+      const day = new Date(today);
+      day.setDate(today.getDate() - (6 - idx));
+      const label = day.toLocaleDateString([], { month: "short", day: "numeric" });
+      const value = round2(
+        ros.reduce(
+          (sum, ro) =>
+            sum +
+            ro.payments
+              .filter((p) => {
+                const d = new Date(p.timestamp);
+                return d.toDateString() === day.toDateString();
+              })
+              .reduce((s, p) => s + p.amount, 0),
+          0,
+        ),
+      );
+      return { label, value };
+    });
+  }, [ros]);
+
+
   const avgROValue = useMemo(() => {
     if (!ros.length) return 0;
     return round2(ros.reduce((sum, ro) => sum + getROFinancials(ro).total, 0) / ros.length);
@@ -1303,17 +2261,49 @@ export default function App() {
 
   const technicianKpis = useMemo(() => {
     return technicians.map((tech) => {
-      const lines = ros.flatMap((ro) => ro.workLines.filter((w) => w.technician.trim() === tech.name));
+      const lines = ros.flatMap((ro) => ro.workLines.filter((w) => lineHasTechnician(w, tech.name)));
       const billedHours = round2(lines.reduce((sum, l) => sum + l.estimatedHours, 0));
       const actualHours = round2(lines.reduce((sum, l) => sum + (l.actualHours || 0), 0));
       const efficiency = actualHours > 0 ? round2((billedHours / actualHours) * 100) : 0;
-      const comebacks = ros.filter(
-        (ro) => ro.isReturnJob && ro.workLines.some((w) => w.technician.trim() === tech.name),
-      ).length;
+      const comebacks = ros.filter((ro) => ro.isReturnJob && ro.workLines.some((w) => lineHasTechnician(w, tech.name))).length;
       const active = lines.filter((l) => l.status === "In Progress").length;
-      return { ...tech, billedHours, actualHours, efficiency, comebacks, active };
+      const completedLines = lines.filter((l) => l.status === "Done").length;
+      const qcLines = lines.filter((l) => l.status === "Quality Check").length;
+      const totalAssigned = lines.length;
+      const completionRate = totalAssigned > 0 ? round2((completedLines / totalAssigned) * 100) : 0;
+      const avgHoursPerJob = completedLines > 0 ? round2(actualHours / completedLines) : 0;
+      const laborRevenue = round2(lines.reduce((sum, l) => sum + l.laborCost, 0));
+      const estimatedValue = round2(lines.reduce((sum, l) => sum + l.estimateTotal, 0));
+      const utilizationScore = round2(Math.min(100, active * 25 + completedLines * 10));
+      const primaryAssignments = lines.filter((line) => getPrimaryTechnicianName(line).toLowerCase() === tech.name.toLowerCase()).length;
+      const supportingAssignments = lines.filter((line) => getSupportingTechnicianNames(line).some((name) => name.toLowerCase() === tech.name.toLowerCase())).length;
+      const rankingScore = round2(
+        efficiency * 0.35 +
+          completionRate * 0.25 +
+          Math.min(completedLines * 8, 100) * 0.2 +
+          Math.max(0, 100 - comebacks * 18) * 0.1 +
+          Math.min(utilizationScore, 100) * 0.1
+      );
+      return { ...tech, billedHours, actualHours, efficiency, comebacks, active, completedLines, qcLines, totalAssigned, completionRate, avgHoursPerJob, laborRevenue, estimatedValue, utilizationScore, primaryAssignments, supportingAssignments, rankingScore };
     });
   }, [technicians, ros]);
+
+  const technicianLeaderboard = useMemo(
+    () => technicianKpis.slice().sort((a, b) => b.rankingScore - a.rankingScore),
+    [technicianKpis],
+  );
+
+  const technicianSummary = useMemo(() => {
+    const totalBilledHours = round2(technicianKpis.reduce((sum, tech) => sum + tech.billedHours, 0));
+    const totalActualHours = round2(technicianKpis.reduce((sum, tech) => sum + tech.actualHours, 0));
+    const totalCompleted = technicianKpis.reduce((sum, tech) => sum + tech.completedLines, 0);
+    const activeTechs = technicianKpis.filter((tech) => tech.clockedIn).length;
+    const workingTechs = technicianKpis.filter((tech) => tech.active > 0).length;
+    const avgEfficiency = technicianKpis.length
+      ? round2(technicianKpis.reduce((sum, tech) => sum + tech.efficiency, 0) / technicianKpis.length)
+      : 0;
+    return { totalBilledHours, totalActualHours, totalCompleted, activeTechs, workingTechs, avgEfficiency };
+  }, [technicianKpis]);
 
   const returnIntelligence = useMemo(() => {
     const byTech: Record<string, number> = {};
@@ -1367,63 +2357,193 @@ export default function App() {
      VIEWS
   ========================= */
 
+
   const DashboardView = () => (
     <div>
-      <h2 style={styles.heading}>Owner Dashboard + Daily Snapshot</h2>
+      <h2 style={styles.heading}>Owner Dashboard + Business Intelligence</h2>
 
       <div style={styles.statsGrid}>
         <MetricCard title="Total RO" value={dashboardStats.totalRO} />
+        <MetricCard title="Waiting Inspection" value={dashboardStats.waitingInspection} />
+        <MetricCard title="Waiting Approval" value={dashboardStats.waitingApproval} />
+        <MetricCard title="Ready to Work" value={dashboardStats.readyToWork} />
         <MetricCard title="In Progress" value={dashboardStats.inProgress} />
         <MetricCard title="Waiting Parts" value={dashboardStats.waitingParts} />
-        <MetricCard title="Completed" value={dashboardStats.completed} />
-        <MetricCard title="Pending Approval" value={dashboardStats.pendingApproval} />
+        <MetricCard title="Quality Check" value={dashboardStats.qualityCheck} />
         <MetricCard title="Ready Release" value={dashboardStats.readyRelease} />
+        <MetricCard title="Released" value={dashboardStats.released} />
+        <MetricCard title="Closed" value={dashboardStats.closed} />
         <MetricCard title="Return Jobs" value={dashboardStats.returnJobs} />
         <MetricCard title="Low Stock Items" value={inventoryAlerts.length} />
       </div>
 
       <div style={{ ...styles.statsGrid, marginTop: 14 }}>
         <MoneyCard title="Daily Revenue" value={dailyRevenue} />
+        <MoneyCard title="Weekly Revenue" value={weeklyRevenue} />
         <MoneyCard title="Monthly Revenue" value={monthlyRevenue} />
-        <MoneyCard title="Avg RO Value" value={avgROValue} />
+        <MoneyCard title="Open Receivables" value={openReceivables} />
         <MetricCard title="Comeback Rate %" value={comebackRate} />
         <MetricCard title="Jobs Today" value={dailySnapshot.jobsToday} />
         <MetricCard title="Released Today" value={dailySnapshot.releasedToday} />
-        <MetricCard title="Active Jobs" value={dailySnapshot.activeJobs} />
         <MetricCard title="Pending Approvals Today" value={dailySnapshot.pendingApprovals} />
+      </div>
+
+      <div style={{ ...styles.summaryGrid, marginTop: 16 }}>
+        {sevenDayRevenue.map((day) => (
+          <div key={day.label} style={styles.metricMini}>
+            <div style={styles.mutedLabel}>{day.label}</div>
+            <strong>₱{day.value.toLocaleString()}</strong>
+          </div>
+        ))}
       </div>
 
       <div style={{ ...styles.shopGrid, marginTop: 16 }}>
         <div style={styles.cardBlock}>
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>Technician Leaderboard</div>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Operational Pipeline</div>
           <div style={{ display: "grid", gap: 8 }}>
-            {technicianKpis
-              .slice()
-              .sort((a, b) => b.efficiency - a.efficiency)
-              .map((tech) => (
-                <div key={tech.id} style={styles.shopMiniRow}>
-                  <span>{tech.name}</span>
-                  <span>{tech.efficiency}% efficiency</span>
-                </div>
-              ))}
+            <div style={styles.shopMiniRow}><span>Open</span><strong>{statusPipeline.open}</strong></div>
+            <div style={styles.shopMiniRow}><span>In Progress</span><strong>{statusPipeline.inProgress}</strong></div>
+            <div style={styles.shopMiniRow}><span>Waiting Parts</span><strong>{statusPipeline.waitingParts}</strong></div>
+            <div style={styles.shopMiniRow}><span>Quality Check</span><strong>{statusPipeline.qc}</strong></div>
+            <div style={styles.shopMiniRow}><span>Completed</span><strong>{statusPipeline.completed}</strong></div>
+            <div style={styles.shopMiniRow}><span>Ready Release</span><strong>{statusPipeline.readyRelease}</strong></div>
           </div>
         </div>
 
         <div style={styles.cardBlock}>
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>Manager Alerts</div>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Revenue Mix This Month</div>
           <div style={{ display: "grid", gap: 8 }}>
-            {managerAlerts.length === 0 ? (
-              <div style={{ color: "#6b7280" }}>No alerts right now.</div>
+            <div style={styles.shopMiniRow}>
+              <span>Labor Revenue</span>
+              <strong>₱{round2(monthRevenueBreakdown.labor).toLocaleString()}</strong>
+            </div>
+            <div style={styles.shopMiniRow}>
+              <span>Parts Revenue</span>
+              <strong>₱{round2(monthRevenueBreakdown.parts).toLocaleString()}</strong>
+            </div>
+            <div style={styles.shopMiniRow}>
+              <span>Average RO Value</span>
+              <strong>₱{avgROValue.toLocaleString()}</strong>
+            </div>
+            <div style={styles.shopMiniRow}>
+              <span>Open Receivables</span>
+              <strong>₱{openReceivables.toLocaleString()}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Technician Summary</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={styles.shopMiniRow}><span>Clocked In</span><strong>{technicianSummary.activeTechs}</strong></div>
+            <div style={styles.shopMiniRow}><span>Actively Working</span><strong>{technicianSummary.workingTechs}</strong></div>
+            <div style={styles.shopMiniRow}><span>Total Billed Hours</span><strong>{technicianSummary.totalBilledHours}</strong></div>
+            <div style={styles.shopMiniRow}><span>Total Actual Hours</span><strong>{technicianSummary.totalActualHours}</strong></div>
+            <div style={styles.shopMiniRow}><span>Completed Lines</span><strong>{technicianSummary.totalCompleted}</strong></div>
+            <div style={styles.shopMiniRow}><span>Average Efficiency</span><strong>{technicianSummary.avgEfficiency}%</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Top Technicians</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {technicianLeaderboard.slice(0, 5).map((tech, index) => (
+              <div key={tech.id} style={styles.logRow}>
+                <div style={styles.rowBetween}>
+                  <div style={{ fontWeight: 700 }}>#{index + 1} {tech.name}</div>
+                  <span style={styles.badgeBlue}>{tech.rankingScore} score</span>
+                </div>
+                <div style={{ marginTop: 6, display: "grid", gap: 4, fontSize: 13, color: "#374151" }}>
+                  <div>Efficiency: {tech.efficiency}%</div>
+                  <div>Completed Lines: {tech.completedLines}</div>
+                  <div>Active Jobs: {tech.active}</div>
+                  <div>Comebacks: {tech.comebacks}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Stuck Jobs / Bottlenecks</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {stuckJobs.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No stuck jobs detected.</div>
             ) : (
-              managerAlerts.map((alert) => (
-                <div key={alert.id} style={styles.logRow}>
+              stuckJobs.map((ro) => (
+                <div key={ro.id} style={styles.logRow}>
                   <div style={styles.rowBetween}>
-                    <div style={{ fontWeight: 600 }}>{alert.roNumber}</div>
-                    <span style={alert.level === "critical" ? styles.badgeDanger : styles.badgeWarn}>
-                      {alert.level}
-                    </span>
+                    <div style={{ fontWeight: 700 }}>{ro.roNumber}</div>
+                    <span style={getROBadgeStyle(ro.status)}>{ro.status}</span>
                   </div>
-                  <div style={{ marginTop: 6 }}>{alert.message}</div>
+                  <div style={{ marginTop: 6, fontSize: 13, color: "#374151" }}>
+                    {ro.customer || "No Customer"} • {ro.vehicle || "No Vehicle"} • {ro.bay}
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 13, color: "#6b7280" }}>
+                    Age: {formatDuration(ro.createdAt)} • Priority: {ro.priority}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Pending Payment / Release</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {pendingInvoiceRos.slice(0, 6).map((ro) => {
+              const financials = getROFinancials(ro);
+              return (
+                <div key={ro.id} style={styles.logRow}>
+                  <div style={styles.rowBetween}>
+                    <div style={{ fontWeight: 700 }}>{ro.roNumber}</div>
+                    <span style={styles.badgeWarn}>₱{financials.balance.toLocaleString()} balance</span>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 13, color: "#374151" }}>
+                    Invoice: {ro.invoiceStatus} • Release: {ro.releaseStatus}
+                  </div>
+                </div>
+              );
+            })}
+            {pendingInvoiceRos.length === 0 && <div style={{ color: "#6b7280" }}>All invoices settled and released.</div>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Top Services</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {topServiceCategories.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No service trend data yet.</div>
+            ) : (
+              topServiceCategories.map(([category, count]) => (
+                <div key={category} style={styles.shopMiniRow}>
+                  <span>{category}</span>
+                  <strong>{count} lines</strong>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>High Value Jobs</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {highValueRos.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No repair orders yet.</div>
+            ) : (
+              highValueRos.map(({ ro, total }) => (
+                <div key={ro.id} style={styles.logRow}>
+                  <div style={styles.rowBetween}>
+                    <div style={{ fontWeight: 700 }}>{ro.roNumber}</div>
+                    <span style={styles.badgeGood}>₱{total.toLocaleString()}</span>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 13, color: "#374151" }}>
+                    {ro.customer || "No Customer"} • {ro.vehicle || "No Vehicle"}
+                  </div>
                 </div>
               ))
             )}
@@ -1446,23 +2566,53 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Manager Alerts</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {managerAlerts.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No alerts right now.</div>
+            ) : (
+              managerAlerts.map((alert) => (
+                <div key={alert.id} style={styles.logRow}>
+                  <div style={styles.rowBetween}>
+                    <div style={{ fontWeight: 600 }}>{alert.roNumber}</div>
+                    <span style={alert.level === "critical" ? styles.badgeDanger : styles.badgeWarn}>
+                      {alert.level}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 6 }}>{alert.message}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
+
 
   const InspectionView = () => (
     <div>
       <div style={styles.rowBetween}>
-        <h2 style={styles.heading}>Inspection</h2>
+        <div>
+          <h2 style={styles.heading}>Inspection Recovery Workflow</h2>
+          <div style={{ color: "#6b7280", marginTop: -8 }}>
+            Plate first, vehicle details next, arrival checks, take notes, then optional customer details.
+          </div>
+        </div>
         <button style={styles.primaryButton} onClick={createROFromInspection}>
           Generate RO from Inspection
         </button>
       </div>
 
       <div style={styles.cardBlock}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>1. Vehicle Identification</div>
         <div style={styles.formGrid}>
           <input
             style={styles.input}
-            placeholder="Plate"
+            placeholder="Plate Number"
             value={inspectionForm.plate}
             onChange={(e) =>
               setInspectionForm((p) => ({ ...p, plate: e.target.value.toUpperCase() }))
@@ -1470,15 +2620,177 @@ export default function App() {
           />
           <input
             style={styles.input}
-            placeholder="Vehicle"
-            value={inspectionForm.vehicle}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicle: e.target.value }))}
+            placeholder="Make"
+            value={inspectionForm.vehicleMake}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleMake: e.target.value }))}
           />
           <input
             style={styles.input}
-            placeholder="Customer"
+            placeholder="Model"
+            value={inspectionForm.vehicleModel}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleModel: e.target.value }))}
+          />
+          <input
+            style={styles.input}
+            placeholder="Year"
+            value={inspectionForm.vehicleYear}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleYear: e.target.value }))}
+          />
+          <input
+            style={styles.input}
+            placeholder="Fallback Vehicle Description"
+            value={inspectionForm.vehicle}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicle: e.target.value }))}
+          />
+        </div>
+        <div style={{ marginTop: 10, color: "#374151", fontSize: 14 }}>
+          <strong>Preview:</strong> {buildInspectionVehicleLabel(inspectionForm) || "No vehicle identified yet"}
+        </div>
+      </div>
+
+      <div style={styles.cardBlock}>
+        <div style={styles.rowBetween}>
+          <div style={{ fontWeight: 700 }}>2. Initial Exterior Photos</div>
+          <button style={styles.secondaryButton} onClick={addInitialExteriorPhoto}>
+            <Camera size={14} /> Add Exterior Photo
+          </button>
+        </div>
+        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+          {inspectionForm.initialExteriorPhotos.length === 0 && (
+            <div style={{ color: "#6b7280" }}>No exterior photos yet.</div>
+          )}
+          {inspectionForm.initialExteriorPhotos.map((photo) => (
+            <div key={photo.id} style={styles.innerBlock}>
+              <div style={styles.formGrid}>
+                <input
+                  style={styles.input}
+                  placeholder="Photo label"
+                  value={photo.label}
+                  onChange={(e) => updateInitialExteriorPhoto(photo.id, "label", e.target.value)}
+                />
+                <input
+                  style={styles.input}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => void uploadInitialExteriorPhotoFile(photo.id, e.target.files?.[0])}
+                />
+                <input
+                  style={styles.input}
+                  placeholder="Photo URL or paste image link"
+                  value={photo.url.startsWith("data:") ? "" : photo.url}
+                  onChange={(e) => updateInitialExteriorPhoto(photo.id, "url", e.target.value)}
+                />
+              </div>
+              {photo.url && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={styles.photoPreviewWrap}>
+                    <img src={photo.url} alt={photo.label || "Exterior photo"} style={styles.photoPreview} />
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.cardBlock}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>3. Take Notes (3 Entries)</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          {inspectionForm.takeNotes.map((item) => (
+            <div key={item.id} style={styles.innerBlock}>
+              <div style={styles.formGrid}>
+                <input
+                  style={styles.input}
+                  placeholder="Title"
+                  value={item.title}
+                  onChange={(e) => updateTakeNote(item.id, "title", e.target.value)}
+                />
+                <input
+                  style={styles.input}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => void uploadTakeNotePhotoFile(item.id, e.target.files?.[0])}
+                />
+                <input
+                  style={styles.input}
+                  placeholder="Photo URL or paste image link"
+                  value={item.photoUrl.startsWith("data:") ? "" : item.photoUrl}
+                  onChange={(e) => updateTakeNote(item.id, "photoUrl", e.target.value)}
+                />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <TextArea
+                  label="Note"
+                  value={item.note}
+                  onChange={(value) => updateTakeNote(item.id, "note", value)}
+                />
+              </div>
+              {item.photoUrl && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={styles.photoPreviewWrap}>
+                    <img src={item.photoUrl} alt={item.title || "Take note photo"} style={styles.photoPreview} />
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.cardBlock}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>4. Arrival Inspection Checks</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          {(["lights", "brokenGlass", "wipers", "hornCondition"] as ArrivalCheckKey[]).map((key) => (
+            <div key={key} style={styles.innerBlock}>
+              <div style={styles.formGrid}>
+                <input
+                  style={styles.input}
+                  value={renderArrivalCheckLabel(key)}
+                  disabled
+                />
+                <select
+                  style={styles.input}
+                  value={inspectionForm.arrivalChecks[key].status}
+                  onChange={(e) => updateArrivalCheck(key, "status", e.target.value)}
+                >
+                  {["Not Checked", "OK", "Needs Attention"].map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  style={styles.input}
+                  placeholder="Short note"
+                  value={inspectionForm.arrivalChecks[key].note}
+                  onChange={(e) => updateArrivalCheck(key, "note", e.target.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.cardBlock}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>5. Optional Customer Details / Advisor Notes</div>
+        <div style={styles.formGrid}>
+          <input
+            style={styles.input}
+            placeholder="Customer Name"
             value={inspectionForm.customer}
             onChange={(e) => setInspectionForm((p) => ({ ...p, customer: e.target.value }))}
+          />
+          <input
+            style={styles.input}
+            placeholder="Customer Phone"
+            value={inspectionForm.customerPhone}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, customerPhone: e.target.value }))}
+          />
+          <input
+            style={styles.input}
+            placeholder="Odometer"
+            value={inspectionForm.odometer}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, odometer: e.target.value }))}
           />
           <select
             style={styles.input}
@@ -1541,7 +2853,7 @@ export default function App() {
           </select>
         </div>
 
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 12 }}>
           <TextArea
             label="Service Advisor Notes"
             value={inspectionForm.serviceAdvisorNotes}
@@ -1550,58 +2862,31 @@ export default function App() {
             }
           />
         </div>
+      </div>
 
-        <div style={{ marginTop: 12 }}>
-          <div style={styles.rowBetween}>
-            <div style={{ fontWeight: 700 }}>Inspection Photos</div>
-            <button style={styles.secondaryButton} onClick={addInspectionPhoto}>
-              <Camera size={14} /> Add Photo
-            </button>
-          </div>
-
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {inspectionForm.inspectionPhotos.map((photo) => (
-              <div key={photo.id} style={styles.innerBlock}>
-                <div style={styles.formGrid}>
-                  <input
-                    style={styles.input}
-                    placeholder="Photo label"
-                    value={photo.label}
-                    onChange={(e) => updateInspectionPhoto(photo.id, "label", e.target.value)}
-                  />
-                  <input
-                    style={styles.input}
-                    placeholder="Photo URL"
-                    value={photo.url}
-                    onChange={(e) => updateInspectionPhoto(photo.id, "url", e.target.value)}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+      <div style={styles.cardBlock}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>6. Diagnostic Triggers</div>
+        <div style={{ color: "#6b7280", marginBottom: 10 }}>
+          These create work lines when you generate the RO.
         </div>
-
-        <div style={{ marginTop: 16 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Detected Issues</div>
-          <div style={styles.issueGrid}>
-            {INSPECTION_ISSUES.map((issue) => (
-              <label key={issue.key} style={styles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={inspectionForm.issues[issue.key]}
-                  onChange={(e) =>
-                    setInspectionForm((p) => ({
-                      ...p,
-                      issues: { ...p.issues, [issue.key]: e.target.checked },
-                    }))
-                  }
-                />
-                <span>
-                  {issue.label} · {issue.defaultWorkLineLabel} · {issue.defaultHours}h
-                </span>
-              </label>
-            ))}
-          </div>
+        <div style={styles.issueGrid}>
+          {INSPECTION_ISSUES.map((issue) => (
+            <label key={issue.key} style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={inspectionForm.issues[issue.key]}
+                onChange={(e) =>
+                  setInspectionForm((p) => ({
+                    ...p,
+                    issues: { ...p.issues, [issue.key]: e.target.checked },
+                  }))
+                }
+              />
+              <span>
+                {issue.label} · {issue.defaultWorkLineLabel} · {issue.defaultHours}h
+              </span>
+            </label>
+          ))}
         </div>
       </div>
     </div>
@@ -1768,6 +3053,20 @@ export default function App() {
                 value={ro.customer}
                 onChange={(e) => updateRO(ro.id, { customer: e.target.value })}
               />
+              <input
+                disabled={!canEditRo(ro)}
+                style={styles.input}
+                placeholder="Customer Phone"
+                value={ro.customerPhone}
+                onChange={(e) => updateRO(ro.id, { customerPhone: e.target.value })}
+              />
+              <input
+                disabled={!canEditRo(ro)}
+                style={styles.input}
+                placeholder="Odometer"
+                value={ro.odometer}
+                onChange={(e) => updateRO(ro.id, { odometer: e.target.value })}
+              />
               <select
                 disabled={!canEditRo(ro)}
                 style={styles.input}
@@ -1794,6 +3093,9 @@ export default function App() {
               </select>
               <span style={styles.badgeDark}>{ro.status}</span>
               {ro.isReturnJob && <span style={styles.badgeDanger}>Comeback</span>}
+              <button style={styles.secondaryButton} onClick={() => printRepairOrder(ro)}>
+                <Printer size={14} /> Print RO
+              </button>
               {ro.softLocked && (
                 <span style={styles.badgePurple}>
                   <Lock size={12} style={{ marginRight: 4 }} /> Released Lock
@@ -1817,18 +3119,61 @@ export default function App() {
           )}
 
           {ro.inspectionPhotos.length > 0 && (
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {ro.inspectionPhotos.map((photo) => (
-                <span key={photo.id} style={styles.badgeBlue}>
-                  {photo.label}
-                </span>
-              ))}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Inspection Photos</div>
+              <div style={styles.photoGrid}>
+                {ro.inspectionPhotos.map((photo) => (
+                  <div key={photo.id} style={styles.photoCard}>
+                    <div style={{ ...styles.photoPreviewWrap, marginBottom: 8 }}>
+                      {photo.url ? (
+                        <img src={photo.url} alt={photo.label || "Inspection photo"} style={styles.photoPreview} />
+                      ) : (
+                        <div style={styles.photoEmpty}><Image size={18} /> No image</div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{photo.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {ro.serviceAdvisorNotes && (
             <div style={{ marginTop: 10, color: "#4b5563" }}>
               <strong>SA Notes:</strong> {ro.serviceAdvisorNotes}
+            </div>
+          )}
+
+          {(ro.odometer || ro.customerVisibleFindings || ro.recommendationsSummary || ro.inspectionCompleted) && (
+            <div style={{ ...styles.innerBlock, marginTop: 10 }}>
+              <div style={styles.summaryRow}>
+                <span style={styles.badgeMuted}>Odometer: {ro.odometer || "-"}</span>
+                <span style={styles.badgeBlue}>{ro.inspectionCompleted ? "Inspection Complete" : "Waiting Inspection"}</span>
+                <span style={ro.qcPassed ? styles.badgeGood : styles.badgeWarn}>{ro.qcPassed ? "QC Passed" : "QC Pending"}</span>
+              </div>
+              {ro.customerVisibleFindings && <div style={{ marginTop: 8 }}><strong>Findings:</strong> {ro.customerVisibleFindings}</div>}
+              {ro.recommendationsSummary && <div style={{ marginTop: 8 }}><strong>Recommendations:</strong> {ro.recommendationsSummary}</div>}
+            </div>
+          )}
+
+          {((ro.initialExteriorPhotos?.length || 0) > 0 || (ro.takeNotes?.length || 0) > 0) && (
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <span style={styles.badgeBlue}>Exterior Photos: {ro.initialExteriorPhotos?.length || 0}</span>
+              <span style={styles.badgeMuted}>Take Notes: {ro.takeNotes?.length || 0}</span>
+              {Object.entries(ro.arrivalChecks || DEFAULT_ARRIVAL_CHECKS).map(([key, value]) => (
+                <span
+                  key={key}
+                  style={
+                    value.status === "Needs Attention"
+                      ? styles.badgeDanger
+                      : value.status === "OK"
+                      ? styles.badgeGood
+                      : styles.badgeMuted
+                  }
+                >
+                  {renderArrivalCheckLabel(key as ArrivalCheckKey)}: {value.status}
+                </span>
+              ))}
             </div>
           )}
 
@@ -1869,16 +3214,28 @@ export default function App() {
                     ),
                   )}
                 </select>
+                <select
+                  style={styles.input}
+                  value={line.priority}
+                  onChange={(e) => updateWorkLine(ro.id, line.id, { priority: e.target.value as Priority })}
+                >
+                  {["Low", "Normal", "High", "Urgent"].map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priority}
+                    </option>
+                  ))}
+                </select>
                 <input
                   style={styles.input}
-                  placeholder="Technician"
-                  value={line.technician}
-                  onChange={(e) =>
-                    updateWorkLine(ro.id, line.id, {
-                      technician: e.target.value,
-                      assignedBy: "Manager",
-                    })
-                  }
+                  placeholder="Primary Technician"
+                  value={getPrimaryTechnicianName(line)}
+                  onChange={(e) => updatePrimaryTechnician(ro.id, line.id, e.target.value)}
+                />
+                <input
+                  style={styles.input}
+                  placeholder="Supporting Technicians (comma separated)"
+                  value={getSupportingTechnicianNames(line).join(", ")}
+                  onChange={(e) => updateSupportingTechnicians(ro.id, line.id, e.target.value)}
                 />
                 <span style={styles.badgeMuted}>{line.approvalStatus}</span>
                 <span style={line.partsSummary === "Waiting Parts" ? styles.badgeWarn : styles.badgeBlue}>
@@ -1900,6 +3257,82 @@ export default function App() {
                 <span style={styles.badgeMuted}>Estimate: ₱{line.estimateTotal.toLocaleString()}</span>
                 <span style={styles.badgeMuted}>Actual: {line.actualHours.toFixed(2)}h</span>
                 <span style={styles.badgeMuted}>Sessions: {line.sessions.length}</span>
+                <span style={styles.badgeBlue}>Primary: {getPrimaryTechnicianName(line) || "Unassigned"}</span>
+                <span style={styles.badgeMuted}>Supporting: {getSupportingTechnicianNames(line).length}</span>
+                <span style={styles.badgeMuted}>Assignment Logs: {line.assignmentLog.length}</span>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <div style={styles.rowBetween}>
+                  <div style={{ fontWeight: 700 }}>Workline Photos</div>
+                  <button style={styles.secondaryButton} onClick={() => addWorkLinePhoto(ro.id, line.id)}>
+                    <Camera size={14} /> Add Workline Photo
+                  </button>
+                </div>
+
+                {line.photos.length > 0 ? (
+                  <div style={{ ...styles.photoGrid, marginTop: 10 }}>
+                    {line.photos.map((photo) => (
+                      <div key={photo.id} style={styles.photoCard}>
+                        <div style={{ ...styles.photoPreviewWrap, marginBottom: 8 }}>
+                          {photo.url ? (
+                            <img src={photo.url} alt={photo.label || "Workline photo"} style={styles.photoPreview} />
+                          ) : (
+                            <div style={styles.photoEmpty}><Image size={18} /> No image</div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <input
+                            style={styles.input}
+                            placeholder="Photo label"
+                            value={photo.label}
+                            onChange={(e) =>
+                              updateWorkLinePhoto(ro.id, line.id, photo.id, "label", e.target.value)
+                            }
+                          />
+                          <select
+                            style={styles.input}
+                            value={photo.stage}
+                            onChange={(e) =>
+                              updateWorkLinePhoto(
+                                ro.id,
+                                line.id,
+                                photo.id,
+                                "stage",
+                                e.target.value as WorkLinePhoto["stage"],
+                              )
+                            }
+                          >
+                            {["Before", "During", "After"].map((stage) => (
+                              <option key={stage} value={stage}>
+                                {stage}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            style={styles.input}
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) =>
+                              void uploadWorkLinePhotoFile(ro.id, line.id, photo.id, e.target.files?.[0])
+                            }
+                          />
+                          <input
+                            style={styles.input}
+                            placeholder="Photo URL or paste image link"
+                            value={photo.url.startsWith("data:") ? "" : photo.url}
+                            onChange={(e) =>
+                              updateWorkLinePhoto(ro.id, line.id, photo.id, "url", e.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: "#6b7280", marginTop: 10 }}>No workline photos yet.</div>
+                )}
               </div>
 
               {line.overrideNote && (
@@ -2069,6 +3502,9 @@ export default function App() {
             <div style={{ marginTop: 10 }}>{ro.vehicle || "No Vehicle"}</div>
             <div style={{ color: "#6b7280", fontSize: 13 }}>{ro.plate || "No Plate"}</div>
             <div style={{ color: "#6b7280", fontSize: 13 }}>{ro.customer || "No Customer"}</div>
+            <div style={{ color: "#6b7280", fontSize: 13 }}>Primary Tech: {getPrimaryTechnicianName(ro.workLines[0] || DEFAULT_WORK_LINE) || "Unassigned"}</div>
+            <div style={{ color: "#6b7280", fontSize: 13 }}>Supporting: {getSupportingTechnicianNames(ro.workLines[0] || DEFAULT_WORK_LINE).length}</div>
+            <div style={{ color: "#6b7280", fontSize: 13 }}>Elapsed: {formatDuration(ro.workLines.find((line) => line.status === "In Progress")?.startedAt)}</div>
 
             <div style={{ ...styles.wrapRow, marginTop: 10 }}>
               <span style={getPriorityStyle(ro.priority)}>{ro.priority}</span>
@@ -2109,8 +3545,36 @@ export default function App() {
     <div>
       <h2 style={styles.heading}>Technician Board + KPI</h2>
 
-      <div style={styles.shopGrid}>
-        {technicianKpis.map((tech) => (
+      <div style={styles.statsGrid}>
+        <MetricCard title="Clocked In" value={technicianSummary.activeTechs} />
+        <MetricCard title="Actively Working" value={technicianSummary.workingTechs} />
+        <MetricCard title="Completed Lines" value={technicianSummary.totalCompleted} />
+        <MetricCard title="Avg Efficiency %" value={technicianSummary.avgEfficiency} />
+      </div>
+
+      <div style={{ ...styles.cardBlock, marginTop: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Top Performers</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {technicianLeaderboard.slice(0, 3).map((tech, index) => (
+            <div key={tech.id} style={styles.logRow}>
+              <div style={styles.rowBetween}>
+                <div style={{ fontWeight: 700 }}>
+                  #{index + 1} {tech.name}
+                </div>
+                <span style={styles.badgeGood}>{tech.rankingScore} pts</span>
+              </div>
+              <div style={{ marginTop: 6, display: "grid", gap: 4, fontSize: 13, color: "#374151" }}>
+                <div>Efficiency: {tech.efficiency}%</div>
+                <div>Completed Lines: {tech.completedLines}</div>
+                <div>Completion Rate: {tech.completionRate}%</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+        {technicianLeaderboard.map((tech) => (
           <div key={tech.id} style={styles.shopCard}>
             <div style={styles.rowBetween}>
               <div>
@@ -2121,6 +3585,7 @@ export default function App() {
                 <span style={tech.clockedIn ? styles.badgeGood : styles.badgeMuted}>
                   {tech.clockedIn ? "Clocked In" : "Clocked Out"}
                 </span>
+                <span style={styles.badgeBlue}>{tech.rankingScore} score</span>
                 <button style={styles.secondaryButton} onClick={() => toggleTechClock(tech.id)}>
                   <UserCog size={14} /> Toggle
                 </button>
@@ -2143,8 +3608,15 @@ export default function App() {
               <div>Billed Hours: {tech.billedHours}</div>
               <div>Actual Hours: {tech.actualHours}</div>
               <div>Efficiency: {tech.efficiency}%</div>
+              <div>Completed Lines: {tech.completedLines}</div>
+              <div>Quality Check Lines: {tech.qcLines}</div>
+              <div>Completion Rate: {tech.completionRate}%</div>
+              <div>Average Hours / Job: {tech.avgHoursPerJob}</div>
               <div>Comebacks: {tech.comebacks}</div>
               <div>Active Jobs: {tech.active}</div>
+              <div>Labor Revenue: ₱{tech.laborRevenue.toLocaleString()}</div>
+              <div>Total Estimated Value: ₱{tech.estimatedValue.toLocaleString()}</div>
+              <div>Utilization Score: {tech.utilizationScore}</div>
             </div>
           </div>
         ))}
@@ -2343,12 +3815,30 @@ export default function App() {
               </div>
 
               <div style={{ marginTop: 10 }}>
+                <label style={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={ro.qcPassed}
+                    onChange={(e) => updateRO(ro.id, { qcPassed: e.target.checked })}
+                  />
+                  <span>QC Passed (required before Ready Release)</span>
+                </label>
+              </div>
+
+              <div style={{ marginTop: 10, ...styles.wrapRow }}>
                 <button
                   style={styles.goodButton}
                   onClick={() => finalizeRelease(ro.id)}
-                  disabled={ro.releaseStatus !== "Ready for Release"}
+                  disabled={ro.releaseStatus !== "Ready for Release" || !ro.qcPassed}
                 >
                   <Truck size={14} style={{ marginRight: 6 }} /> Finalize Release
+                </button>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => closeRepairOrder(ro.id)}
+                  disabled={ro.releaseStatus !== "Released"}
+                >
+                  Close RO
                 </button>
               </div>
 
@@ -2639,6 +4129,19 @@ export default function App() {
                         </div>
                       )}
 
+                      {ro.workLines.some((w) => w.photos.length > 0) && (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>Workline Photos</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {ro.workLines.flatMap((w) => w.photos.map((photo) => ({ line: w.label, ...photo }))).map((photo) => (
+                              <span key={photo.id} style={styles.badgeBlue}>
+                                {photo.stage}: {photo.line}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div style={{ ...styles.summaryRow, marginTop: 10 }}>
                         <span>Total: ₱{f.total.toLocaleString()}</span>
                         <span>Paid: ₱{f.paid.toLocaleString()}</span>
@@ -2662,13 +4165,15 @@ export default function App() {
     return (
       <div style={styles.loginWrap}>
         <div style={styles.loginCard}>
-          <h1 style={styles.title}>Workshop System</h1>
+          <h1 style={styles.title}>{SHOP_NAME}</h1>
           <p style={{ marginTop: 0, color: "#6b7280" }}>
-            Phase 10 flexible automation, alerts, tracking, and soft controls.
+            {SHOP_SLOGAN}
           </p>
+          <div style={{ marginBottom: 12, color: "#2563eb", fontWeight: 700 }}>Build Version: {BUILD_VERSION}</div>
           <button style={styles.primaryButton} onClick={() => setUser(USERS[0])}>
             Login as {USERS[0].role}
           </button>
+          <div style={{ marginTop: 14, fontSize: 12, color: "#6b7280" }}>Designed by Jomar Carlo Orlanda</div>
         </div>
       </div>
     );
@@ -3043,6 +4548,41 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: 8,
     alignItems: "center",
+    fontSize: 13,
+  },
+  photoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: 12,
+  },
+  photoCard: {
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#fff",
+    padding: 10,
+  },
+  photoPreviewWrap: {
+    width: "100%",
+    aspectRatio: "4 / 3",
+    borderRadius: 10,
+    overflow: "hidden",
+    background: "#f3f4f6",
+    border: "1px solid #e5e7eb",
+  },
+  photoPreview: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+  photoEmpty: {
+    width: "100%",
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    color: "#6b7280",
     fontSize: 13,
   },
   loginWrap: {
