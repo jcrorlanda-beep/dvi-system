@@ -44,10 +44,11 @@ type ViewKey =
   | "customerSummary"
   | "history"
   | "backJob"
+  | "activityLogs"
   | "purchasing"
   | "inventory";
 
-type UserRole = "Admin" | "Technician" | "Service Advisor";
+type UserRole = "Admin" | "Technician" | "Service Advisor" | "Manager" | "Assistant Manager";
 
 type User = {
   username: string;
@@ -497,15 +498,45 @@ type BackJobRecord = {
   linkedOriginalRoNumber?: string;
 };
 
+
+type ActivityLogEntry = {
+  id: string;
+  timestamp: number;
+  user: string;
+  role: UserRole | string;
+  module:
+    | "RO"
+    | "Inspection"
+    | "Approval"
+    | "Parts"
+    | "Supplier"
+    | "Inventory"
+    | "Billing"
+    | "QC"
+    | "Release"
+    | "Back Job"
+    | "Customer Summary"
+    | "Activity Logs";
+  action: string;
+  recordReference: string;
+  oldValue?: string;
+  newValue?: string;
+  note?: string;
+};
+
 /* =========================
    SEED / DEFAULTS
 ========================= */
 
-const USERS: User[] = [{ username: "admin", password: "admin123", role: "Admin" }];
+const USERS: User[] = [
+  { username: "admin", password: "admin123", role: "Admin" },
+  { username: "manager", password: "manager123", role: "Manager" },
+  { username: "assistant", password: "assistant123", role: "Assistant Manager" },
+];
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 13B — Customer Summary + PDF + Send";
+const BUILD_VERSION = "Phase 13C — Activity Logs System";
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -1569,6 +1600,7 @@ export default function App() {
   const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>("phase10_ros", []).map((ro) => normalizeLegacyRepairOrder(ro)));
   const [parts, setParts] = useState<PartRequest[]>(() => safeLoad("phase10_parts", []));
   const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>("phase13a_backjobs", []));
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>("phase13c_activity_logs", []));
 
   useEffect(() => {
     localStorage.setItem("phase10_ros", JSON.stringify(ros));
@@ -1581,6 +1613,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("phase13a_backjobs", JSON.stringify(backJobs));
   }, [backJobs]);
+
+  useEffect(() => {
+    localStorage.setItem("phase13c_activity_logs", JSON.stringify(activityLogs));
+  }, [activityLogs]);
 
   useEffect(() => {
     localStorage.setItem("phase10_techs", JSON.stringify(technicians));
@@ -1704,6 +1740,51 @@ export default function App() {
 
   const canEditRo = (ro: RepairOrder) => !ro.softLocked || !!ro.lockOverrideReason.trim();
 
+  const canViewActivityLogs = user?.role === "Admin" || user?.role === "Manager" || user?.role === "Assistant Manager";
+
+  const stringifyActivityValue = (value: unknown) => {
+    if (value === undefined) return undefined;
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const logActivity = ({
+    module,
+    action,
+    recordReference,
+    oldValue,
+    newValue,
+    note,
+  }: {
+    module: ActivityLogEntry["module"];
+    action: string;
+    recordReference: string;
+    oldValue?: unknown;
+    newValue?: unknown;
+    note?: string;
+  }) => {
+    setActivityLogs((prev) => [
+      {
+        id: uid(),
+        timestamp: Date.now(),
+        user: user?.username || "System",
+        role: user?.role || "System",
+        module,
+        action,
+        recordReference,
+        oldValue: stringifyActivityValue(oldValue),
+        newValue: stringifyActivityValue(newValue),
+        note,
+      },
+      ...prev,
+    ]);
+  };
+
+
   /* =========================
      ACTIONS
   ========================= */
@@ -1800,15 +1881,18 @@ export default function App() {
     if (!target) return;
     if (!canEditRo(target) && !("lockOverrideReason" in patch)) return;
 
+    const updated = { ...target, ...patch };
     recomputeAll(
-      ros.map((ro) => (ro.id === id ? { ...ro, ...patch } : ro)),
+      ros.map((ro) => (ro.id === id ? updated : ro)),
       parts,
     );
+    logActivity({ module: "RO", action: "Update RO", recordReference: target.roNumber, oldValue: target, newValue: updated });
   };
 
   const addWorkLine = (roId: string) => {
     const target = ros.find((r) => r.id === roId);
     if (!target || !canEditRo(target)) return;
+    const newLine = getWorkLineEstimate({ ...DEFAULT_WORK_LINE, id: uid() });
 
     recomputeAll(
       ros.map((ro) =>
@@ -1816,11 +1900,12 @@ export default function App() {
           ? ro
           : {
               ...ro,
-              workLines: [...ro.workLines, getWorkLineEstimate({ ...DEFAULT_WORK_LINE, id: uid() })],
+              workLines: [...ro.workLines, newLine],
             },
       ),
       parts,
     );
+    logActivity({ module: "RO", action: "Add Work Line", recordReference: target.roNumber, newValue: newLine });
   };
 
   const updateWorkLine = (roId: string, wlId: string, patch: Partial<ROWorkLine>) => {
@@ -1868,6 +1953,8 @@ export default function App() {
     });
 
     recomputeAll(nextRos, parts);
+    const roRef = ros.find((r) => r.id === roId)?.roNumber || roId;
+    logActivity({ module: "RO", action: "Update Work Line", recordReference: roRef, newValue: patch });
   };
 
   const logCustomerDecision = (
@@ -1907,6 +1994,8 @@ export default function App() {
     });
 
     recomputeAll(nextRos, parts);
+    const roRef = ros.find((r) => r.id === roId)?.roNumber || roId;
+    logActivity({ module: "Approval", action: "Customer Decision", recordReference: roRef, newValue: { wlId, decision, via, note } });
   };
 
   const sendSmsApproval = async (roId: string, wlId: string) => {
@@ -2091,13 +2180,17 @@ export default function App() {
       customerTotalSellingPrice: 0,
     };
     recomputeAll(ros, [nextPart, ...parts]);
+    logActivity({ module: "Parts", action: "Create Part Request", recordReference: roNumber, newValue: nextPart });
   };
 
   const updatePart = (id: string, patch: Partial<PartRequest>) => {
+    const existingPart = parts.find((part) => part.id === id);
+    const updatedParts = parts.map((part) => (part.id === id ? { ...part, ...patch } : part));
     recomputeAll(
       ros,
-      parts.map((part) => (part.id === id ? { ...part, ...patch } : part)),
+      updatedParts,
     );
+    logActivity({ module: "Parts", action: "Update Part Request", recordReference: existingPart?.roNumber || id, oldValue: existingPart, newValue: patch });
   };
 
   const updatePaymentForm = (roId: string, patch: Partial<PaymentForm>) => {
@@ -2131,6 +2224,8 @@ export default function App() {
     );
 
     recomputeAll(nextRos, parts);
+    const roRef = ros.find((r) => r.id === roId)?.roNumber || roId;
+    logActivity({ module: "Billing", action: "Add Payment", recordReference: roRef, newValue: { amount, method: form.method, note: form.note } });
     setPaymentForms((prev) => ({ ...prev, [roId]: { ...DEFAULT_PAYMENT_FORM } }));
   };
 
@@ -2461,7 +2556,9 @@ export default function App() {
 
   const createSupplier = () => {
     if (!supplierForm.name.trim()) return;
-    setSuppliers((prev) => [{ id: uid(), ...supplierForm }, ...prev]);
+    const nextSupplier = { id: uid(), ...supplierForm };
+    setSuppliers((prev) => [nextSupplier, ...prev]);
+    logActivity({ module: "Supplier", action: "Create Supplier", recordReference: nextSupplier.name, newValue: nextSupplier });
     setSupplierForm(DEFAULT_SUPPLIER_FORM);
   };
 
@@ -2541,8 +2638,7 @@ export default function App() {
   const createInventoryItem = () => {
     if (!inventoryForm.partName.trim()) return;
 
-    setInventory((prev) => [
-      {
+    const nextItem = {
         id: uid(),
         partName: inventoryForm.partName,
         sku: inventoryForm.sku,
@@ -2550,9 +2646,12 @@ export default function App() {
         reorderLevel: Number(inventoryForm.reorderLevel) || 0,
         avgCost: Number(inventoryForm.avgCost) || 0,
         location: inventoryForm.location,
-      },
+      };
+    setInventory((prev) => [
+      nextItem,
       ...prev,
     ]);
+    logActivity({ module: "Inventory", action: "Create Inventory Item", recordReference: nextItem.sku || nextItem.partName, newValue: nextItem });
 
     setInventoryForm(DEFAULT_INVENTORY_FORM);
   };
@@ -2650,7 +2749,9 @@ export default function App() {
   };
 
   const updateBackJob = (id: string, patch: Partial<BackJobRecord>) => {
+    const existingBackJob = backJobs.find((item) => item.id === id);
     setBackJobs((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    logActivity({ module: "Back Job", action: "Update Back Job", recordReference: existingBackJob?.backJobInvoiceNumber || id, oldValue: existingBackJob, newValue: patch });
   };
 
   /* =========================
@@ -2917,6 +3018,19 @@ export default function App() {
     () => inventory.filter((i) => i.quantityOnHand <= i.reorderLevel),
     [inventory],
   );
+
+
+  const filteredActivityLogs = useMemo(() => {
+    return activityLogs;
+  }, [activityLogs]);
+
+  const activityLogSummaryByUser = useMemo(() => {
+    const map = new Map<string, number>();
+    activityLogs.forEach((entry) => {
+      map.set(entry.user, (map.get(entry.user) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [activityLogs]);
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
@@ -4942,6 +5056,89 @@ export default function App() {
     </div>
   );
 
+
+  const ActivityLogsView = () => (
+    <div>
+      <div style={styles.rowBetween}>
+        <h2 style={styles.heading}>Activity Logs</h2>
+        <div style={{ color: "#6b7280", fontSize: 13 }}>
+          Manager / Assistant Manager / Admin only
+        </div>
+      </div>
+
+      {!canViewActivityLogs ? (
+        <div style={styles.cardBlock}>You do not have permission to view activity logs.</div>
+      ) : (
+        <>
+          <div style={styles.statsGrid}>
+            <MetricCard title="Total Logs" value={activityLogs.length} />
+            <MetricCard title="Users With Activity" value={activityLogSummaryByUser.length} />
+            <MetricCard title="RO Logs" value={activityLogs.filter((entry) => entry.module === "RO").length} />
+            <MetricCard title="Parts Logs" value={activityLogs.filter((entry) => entry.module === "Parts" || entry.module === "Supplier").length} />
+          </div>
+
+          <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+            <div style={styles.cardBlock}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Per-User Activity</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {activityLogSummaryByUser.length === 0 ? (
+                  <div style={{ color: "#6b7280" }}>No activity yet.</div>
+                ) : (
+                  activityLogSummaryByUser.map(([username, count]) => (
+                    <div key={username} style={styles.shopMiniRow}>
+                      <span>{username}</span>
+                      <span>{count} log(s)</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={styles.cardBlock}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Recent System Activity</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {filteredActivityLogs.slice(0, 25).map((entry) => (
+                  <div key={entry.id} style={styles.logRow}>
+                    <div style={styles.rowBetween}>
+                      <div style={{ fontWeight: 700 }}>{entry.action}</div>
+                      <span style={styles.badgeMuted}>{entry.module}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
+                      {new Date(entry.timestamp).toLocaleString()} • {entry.user} • {entry.role}
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <strong>Reference:</strong> {entry.recordReference}
+                    </div>
+                    {entry.note && (
+                      <div style={{ marginTop: 6 }}>
+                        <strong>Note:</strong> {entry.note}
+                      </div>
+                    )}
+                    {(entry.oldValue || entry.newValue) && (
+                      <details style={{ marginTop: 8 }}>
+                        <summary style={{ cursor: "pointer", fontWeight: 600 }}>View change details</summary>
+                        {entry.oldValue && (
+                          <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
+                            <strong>Old:</strong> {entry.oldValue}
+                          </div>
+                        )}
+                        {entry.newValue && (
+                          <div style={{ marginTop: 8, fontSize: 12, color: "#111827" }}>
+                            <strong>New:</strong> {entry.newValue}
+                          </div>
+                        )}
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   /* =========================
      LOGIN
   ========================= */
@@ -4982,6 +5179,7 @@ export default function App() {
         <NavButton icon={<FileText size={16} />} label="Customer Summary" onClick={() => setView("customerSummary")} />
         <NavButton icon={<History size={16} />} label="History" onClick={() => setView("history")} />
         <NavButton icon={<RotateCcw size={16} />} label="Back Job" onClick={() => setView("backJob")} />
+        {canViewActivityLogs && <NavButton icon={<ClipboardList size={16} />} label="Activity Logs" onClick={() => setView("activityLogs")} />}
         <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" onClick={() => setView("purchasing")} />
         <NavButton icon={<Warehouse size={16} />} label="Inventory" onClick={() => setView("inventory")} />
       </aside>
@@ -4998,6 +5196,7 @@ export default function App() {
         {view === "customerSummary" && <CustomerSummaryView />}
         {view === "history" && <HistoryView />}
         {view === "backJob" && <BackJobView />}
+        {view === "activityLogs" && <ActivityLogsView />}
         {view === "purchasing" && <PurchasingView />}
         {view === "inventory" && <InventoryView />}
       </main>
