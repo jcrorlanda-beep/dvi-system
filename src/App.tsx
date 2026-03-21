@@ -559,7 +559,25 @@ const USERS: User[] = [
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 13D — Sales Report System";
+const BUILD_VERSION = "Phase 15A — UI Foundation";
+
+const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
+  dashboard: { title: "Dashboard", subtitle: "Business intelligence, live operations, and management insights." },
+  inspection: { title: "Inspection", subtitle: "Structured intake, findings, and arrival documentation." },
+  approval: { title: "Approval", subtitle: "Customer decisions, estimates, and work authorization." },
+  ro: { title: "Repair Orders", subtitle: "Master job records, work lines, assignments, and status control." },
+  parts: { title: "Parts", subtitle: "Request, quote, receive, and price parts accurately." },
+  shop: { title: "Shop Floor", subtitle: "Live bay status, active jobs, and workflow visibility." },
+  tech: { title: "Technician Board", subtitle: "Technician load, productivity, and assignment tracking." },
+  billing: { title: "Billing", subtitle: "Payments, QC release gates, and financial summaries." },
+  customerSummary: { title: "Customer Summary", subtitle: "Customer-facing summaries, print, PDF, SMS, and email actions." },
+  history: { title: "History", subtitle: "Customer visits, repeat issues, and service timeline." },
+  backJob: { title: "Back Job", subtitle: "Follow-up, recheck, root cause, and accountability tracking." },
+  salesReports: { title: "Sales Reports", subtitle: "Daily sales entry, monthly totals, and yearly projections." },
+  activityLogs: { title: "Activity Logs", subtitle: "Audit trail of changes across the entire system." },
+  purchasing: { title: "Purchasing", subtitle: "Suppliers, sourcing, and purchasing coordination." },
+  inventory: { title: "Inventory", subtitle: "Stock, reorder monitoring, and inventory visibility." },
+};
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -5463,16 +5481,24 @@ export default function App() {
   if (!user) {
     return (
       <div style={styles.loginWrap}>
+        <div style={styles.loginAccent} />
         <div style={styles.loginCard}>
+          <div style={styles.loginEyebrow}>Automotive Service Management Platform</div>
           <h1 style={styles.title}>{SHOP_NAME}</h1>
-          <p style={{ marginTop: 0, color: "#6b7280" }}>
+          <p style={{ marginTop: 0, marginBottom: 10, color: "#475569", fontSize: 15 }}>
             {SHOP_SLOGAN}
           </p>
-          <div style={{ marginBottom: 12, color: "#2563eb", fontWeight: 700 }}>Build Version: {BUILD_VERSION}</div>
-          <button style={styles.primaryButton} onClick={() => setUser(USERS[0])}>
-            Login as {USERS[0].role}
+          <div style={styles.topbarBadge}>Build Version: {BUILD_VERSION}</div>
+          <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
+            <div style={styles.metricMini}>
+              <div style={styles.mutedLabel}>Access</div>
+              <strong>Unified staff login</strong>
+            </div>
+          </div>
+          <button style={{ ...styles.primaryButton, width: "100%", justifyContent: "center", marginTop: 18 }} onClick={() => setUser(USERS[0])}>
+            Sign In as {USERS[0].role}
           </button>
-          <div style={{ marginTop: 14, fontSize: 12, color: "#6b7280" }}>Designed by Jomar Carlo Orlanda</div>
+          <div style={styles.loginFooter}>Designed by Jomar Carlo Orlanda</div>
         </div>
       </div>
     );
@@ -5530,13 +5556,15 @@ function NavButton({
   icon,
   label,
   onClick,
+  active = false,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  active?: boolean;
 }) {
   return (
-    <button style={styles.navButton} onClick={onClick}>
+    <button style={{ ...styles.navButton, ...(active ? styles.navButtonActive : {}) }} onClick={onClick}>
       {icon}
       <span>{label}</span>
     </button>
@@ -5590,34 +5618,120 @@ const styles: Record<string, React.CSSProperties> = {
   appWrap: {
     minHeight: "100vh",
     display: "flex",
-    background: "#f8fafc",
-    color: "#111827",
+    background: "linear-gradient(180deg, #eff6ff 0%, #f8fafc 18%, #f8fafc 100%)",
+    color: "#0f172a",
     fontFamily: "Arial, Helvetica, sans-serif",
   },
   sidebar: {
-    width: 220,
-    borderRight: "1px solid #e5e7eb",
-    padding: 12,
+    width: 268,
+    borderRight: "1px solid #dbe4f0",
+    padding: 14,
     display: "flex",
     flexDirection: "column",
     gap: 8,
-    background: "#fff",
+    background: "linear-gradient(180deg, #0f172a 0%, #111827 100%)",
+    color: "#f8fafc",
+    boxSizing: "border-box",
+  },
+  sidebarBrand: {
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: 16,
+    padding: 14,
+    background: "linear-gradient(180deg, rgba(37,99,235,0.22) 0%, rgba(255,255,255,0.04) 100%)",
+    marginBottom: 6,
+  },
+  sidebarTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    lineHeight: 1.2,
+    color: "#ffffff",
+  },
+  sidebarSlogan: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "#cbd5e1",
+  },
+  sidebarSection: {
+    marginTop: 4,
+    marginBottom: 2,
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: "#94a3b8",
+    padding: "0 4px",
   },
   main: {
     flex: 1,
-    padding: 20,
+    padding: 18,
+    boxSizing: "border-box",
+  },
+  topbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    flexWrap: "wrap",
+    marginBottom: 16,
+    padding: 18,
+    border: "1px solid #dbe4f0",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.92)",
+    boxShadow: "0 14px 34px rgba(15, 23, 42, 0.06)",
+    backdropFilter: "blur(8px)",
+  },
+  topbarTitleWrap: {
+    display: "grid",
+    gap: 4,
+  },
+  topbarTitle: {
+    fontSize: 24,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  topbarSubtitle: {
+    fontSize: 13,
+    color: "#64748b",
+  },
+  topbarBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "8px 12px",
+    borderRadius: 999,
+    background: "rgba(37,99,235,0.12)",
+    color: "#1d4ed8",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  pageSurface: {
+    border: "1px solid #e2e8f0",
+    borderRadius: 22,
+    background: "rgba(255,255,255,0.94)",
+    boxShadow: "0 20px 42px rgba(15, 23, 42, 0.06)",
+    padding: 18,
   },
   navButton: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     width: "100%",
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
-    background: "#fff",
-    padding: "10px 12px",
+    border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    background: "rgba(255,255,255,0.04)",
+    color: "#e2e8f0",
+    padding: "11px 12px",
     cursor: "pointer",
     textAlign: "left",
+    fontWeight: 600,
+    transition: "all 0.2s ease",
+  },
+  navButtonActive: {
+    background: "linear-gradient(90deg, rgba(37,99,235,0.95) 0%, rgba(29,78,216,0.95) 100%)",
+    color: "#ffffff",
+    border: "1px solid rgba(96,165,250,0.7)",
+    boxShadow: "0 8px 20px rgba(37, 99, 235, 0.28)",
   },
   heading: {
     marginTop: 0,
@@ -5627,7 +5741,8 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     marginTop: 0,
     marginBottom: 12,
-    fontSize: 28,
+    fontSize: 32,
+    lineHeight: 1.15,
   },
   statsGrid: {
     display: "grid",
@@ -5896,15 +6011,49 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "#f8fafc",
+    background: "radial-gradient(circle at top, #dbeafe 0%, #eff6ff 28%, #f8fafc 68%, #eef2ff 100%)",
     fontFamily: "Arial, Helvetica, sans-serif",
+    padding: 20,
+    boxSizing: "border-box",
+    position: "relative",
+    overflow: "hidden",
+  },
+  loginAccent: {
+    position: "absolute",
+    width: 520,
+    height: 520,
+    borderRadius: 999,
+    background: "radial-gradient(circle, rgba(37,99,235,0.18) 0%, rgba(37,99,235,0.04) 46%, rgba(37,99,235,0) 72%)",
+    top: -160,
+    right: -120,
   },
   loginCard: {
     width: "100%",
-    maxWidth: 420,
-    border: "1px solid #e5e7eb",
-    borderRadius: 16,
-    background: "#fff",
-    padding: 24,
+    maxWidth: 470,
+    border: "1px solid #dbe4f0",
+    borderRadius: 24,
+    background: "rgba(255,255,255,0.96)",
+    padding: 28,
+    boxShadow: "0 24px 50px rgba(15, 23, 42, 0.12)",
+    position: "relative",
+    zIndex: 1,
+    backdropFilter: "blur(12px)",
+  },
+  loginEyebrow: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "rgba(37,99,235,0.12)",
+    color: "#1d4ed8",
+    fontSize: 12,
+    fontWeight: 800,
+    marginBottom: 14,
+  },
+  loginFooter: {
+    marginTop: 16,
+    fontSize: 12,
+    color: "#64748b",
+    textAlign: "center",
   },
 };
