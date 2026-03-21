@@ -41,6 +41,7 @@ type ViewKey =
   | "shop"
   | "tech"
   | "billing"
+  | "customerSummary"
   | "history"
   | "backJob"
   | "purchasing"
@@ -504,7 +505,7 @@ const USERS: User[] = [{ username: "admin", password: "admin123", role: "Admin" 
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 13A — Back Job System";
+const BUILD_VERSION = "Phase 13B — Customer Summary + PDF + Send";
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -1118,6 +1119,210 @@ function buildInspectionVehicleLabel(form: InspectionForm): string {
   return composed || form.vehicle.trim();
 }
 
+
+
+function getCustomerSummaryAttachments(ro: RepairOrder) {
+  const inspection = (ro.inspectionPhotos || []).map((photo) => ({
+    label: `Inspection • ${photo.label}`,
+    url: photo.url,
+  }));
+  const exterior = (ro.initialExteriorPhotos || []).map((photo) => ({
+    label: `Exterior • ${photo.label}`,
+    url: photo.url,
+  }));
+  const workline = (ro.workLines || []).flatMap((line) =>
+    (line.photos || [])
+      .filter((photo) => !!photo.url)
+      .map((photo) => ({
+        label: `${line.label} • ${photo.stage} • ${photo.label}`,
+        url: photo.url,
+      })),
+  );
+  return [...inspection, ...exterior, ...workline];
+}
+
+function buildCustomerSummaryHtml(ro: RepairOrder, parts: PartRequest[]) {
+  const financials = getROFinancials(ro);
+  const relevantParts = parts.filter((part) => part.roNumber === ro.roNumber && part.status !== "Cancelled");
+  const attachmentRows = getCustomerSummaryAttachments(ro);
+  const approvedWorkRows = ro.workLines
+    .filter((line) => line.approvalStatus !== "Declined")
+    .map(
+      (line) => `
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${line.label}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${line.category}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">₱${line.laborCost.toLocaleString()}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">₱${line.partsCost.toLocaleString()}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">₱${line.estimateTotal.toLocaleString()}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  const partsRows = relevantParts.length
+    ? relevantParts
+        .map(
+          (part) => `
+            <tr>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${part.partName || "Unnamed Part"}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${part.qty}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">₱${(part.customerPartsSellingPrice || part.unitCost || 0).toLocaleString()}</td>
+            </tr>
+          `,
+        )
+        .join("")
+    : `<tr><td colspan="3" style="padding:8px;border:1px solid #e5e7eb;">No customer-visible parts listed</td></tr>`;
+
+  const attachmentHtml = attachmentRows.length
+    ? attachmentRows
+        .map(
+          (item) => `
+            <div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">
+              <strong>${item.label}</strong><br/>
+              <span style="font-size:12px;color:#6b7280;">${item.url}</span>
+            </div>
+          `,
+        )
+        .join("")
+    : `<div style="color:#6b7280;">No customer-visible attachments</div>`;
+
+  return `
+    <html>
+      <head>
+        <title>${ro.roNumber} Customer Summary</title>
+      </head>
+      <body style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111827;">
+        <div style="border-bottom:2px solid #111827;padding-bottom:12px;margin-bottom:20px;">
+          <div style="font-size:28px;font-weight:800;">${SHOP_NAME}</div>
+          <div style="font-size:14px;color:#4b5563;">${SHOP_SLOGAN}</div>
+          <div style="margin-top:8px;font-size:12px;color:#6b7280;">Customer Summary • ${new Date().toLocaleString()}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:18px;">
+          <div><strong>RO Number:</strong> ${ro.roNumber}</div>
+          <div><strong>Date:</strong> ${new Date(ro.createdAt).toLocaleDateString()}</div>
+          <div><strong>Customer:</strong> ${ro.customer || "-"}</div>
+          <div><strong>Vehicle:</strong> ${ro.vehicle || "-"}</div>
+          <div><strong>Plate:</strong> ${ro.plate || "-"}</div>
+          <div><strong>Odometer:</strong> ${ro.odometer || "-"}</div>
+        </div>
+
+        <h2 style="margin:18px 0 8px 0;">Findings</h2>
+        <div style="padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;white-space:pre-wrap;">${ro.customerVisibleFindings || "No findings provided."}</div>
+
+        <h2 style="margin:18px 0 8px 0;">Recommended Services</h2>
+        <div style="padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;white-space:pre-wrap;">${ro.recommendationsSummary || "No recommendations summary provided."}</div>
+
+        <h2 style="margin:18px 0 8px 0;">Approved Work</h2>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Service</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Category</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Service Price</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Parts Price</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>${approvedWorkRows || `<tr><td colspan="5" style="padding:8px;border:1px solid #e5e7eb;">No approved work lines</td></tr>`}</tbody>
+        </table>
+
+        <h2 style="margin:18px 0 8px 0;">Customer-Visible Parts</h2>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Part</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Qty</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Price</th>
+            </tr>
+          </thead>
+          <tbody>${partsRows}</tbody>
+        </table>
+
+        <h2 style="margin:18px 0 8px 0;">Totals</h2>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
+          <div style="padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;"><strong>Service Price</strong><div>₱${financials.labor.toLocaleString()}</div></div>
+          <div style="padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;"><strong>Parts Price</strong><div>₱${financials.parts.toLocaleString()}</div></div>
+          <div style="padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;"><strong>Total</strong><div>₱${financials.total.toLocaleString()}</div></div>
+        </div>
+
+        <h2 style="margin:18px 0 8px 0;">Customer-Visible Attachments</h2>
+        <div style="padding:12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;">${attachmentHtml}</div>
+      </body>
+    </html>
+  `;
+}
+
+function printCustomerSummary(ro: RepairOrder, parts: PartRequest[]) {
+  const popup = window.open("", "_blank", "width=980,height=760");
+  if (!popup) return;
+  popup.document.write(buildCustomerSummaryHtml(ro, parts));
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function downloadCustomerSummaryPdf(ro: RepairOrder, parts: PartRequest[]) {
+  const popup = window.open("", "_blank", "width=980,height=760");
+  if (!popup) return;
+  popup.document.write(buildCustomerSummaryHtml(ro, parts));
+  popup.document.close();
+  popup.focus();
+  setTimeout(() => {
+    popup.alert("Use your browser print dialog and choose 'Save as PDF' to download this summary as PDF.");
+    popup.print();
+  }, 300);
+}
+
+function buildCustomerSummaryMessage(ro: RepairOrder, parts: PartRequest[]) {
+  const financials = getROFinancials(ro);
+  const services = ro.workLines
+    .filter((line) => line.approvalStatus !== "Declined")
+    .map((line) => `• ${line.label} — ₱${line.estimateTotal.toLocaleString()}`)
+    .join("\n");
+  return `${SHOP_NAME}
+${SHOP_SLOGAN}
+
+Customer Summary
+RO: ${ro.roNumber}
+Customer: ${ro.customer || "-"}
+Vehicle: ${ro.vehicle || "-"}
+Plate: ${ro.plate || "-"}
+Odometer: ${ro.odometer || "-"}
+
+Findings:
+${ro.customerVisibleFindings || "No findings provided."}
+
+Recommended Services:
+${ro.recommendationsSummary || "No recommendations summary provided."}
+
+Approved Work:
+${services || "No approved work lines"}
+
+Service Price: ₱${financials.labor.toLocaleString()}
+Parts Price: ₱${financials.parts.toLocaleString()}
+Total: ₱${financials.total.toLocaleString()}`;
+}
+
+function sendCustomerSummaryEmail(ro: RepairOrder, parts: PartRequest[]) {
+  const subject = encodeURIComponent(`${SHOP_NAME} - Customer Summary ${ro.roNumber}`);
+  const body = encodeURIComponent(buildCustomerSummaryMessage(ro, parts));
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+function sendCustomerSummarySmsLink(ro: RepairOrder, parts: PartRequest[]) {
+  const message = buildCustomerSummaryMessage(ro, parts);
+  const phone = (ro.customerPhone || "").trim();
+  if (phone) {
+    const cleanPhone = phone.replace(/\s+/g, "");
+    window.open(`sms:${cleanPhone}?body=${encodeURIComponent(message)}`, "_self");
+  } else {
+    copySmsToClipboard(message)
+      .then(() => alert("Customer summary copied to clipboard. No phone saved for SMS link."))
+      .catch(() => alert(message));
+  }
+}
 function renderArrivalCheckLabel(key: ArrivalCheckKey): string {
   if (key === "brokenGlass") return "Broken Glass";
   if (key === "hornCondition") return "Horn Condition";
@@ -4014,6 +4219,57 @@ export default function App() {
     </div>
   );
 
+  const CustomerSummaryView = () => (
+    <div>
+      <div style={styles.rowBetween}>
+        <h2 style={styles.heading}>Customer Summary + PDF + Send</h2>
+        <div style={{ color: "#6b7280" }}>Customer-facing summary with print, PDF, SMS, and email actions.</div>
+      </div>
+
+      {ros.length === 0 && <div style={styles.cardBlock}>No repair orders available for summary generation.</div>}
+
+      {ros.map((ro) => {
+        const financials = getROFinancials(ro);
+        const attachmentCount = getCustomerSummaryAttachments(ro).length;
+        return (
+          <div key={ro.id} style={styles.cardBlock}>
+            <div style={styles.rowBetween}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{ro.roNumber}</div>
+                <div style={{ color: "#6b7280" }}>{ro.customer || "No Customer"} • {ro.vehicle || "No Vehicle"} • {ro.plate || "No Plate"}</div>
+              </div>
+              <div style={styles.wrapRow}>
+                <span style={getROBadgeStyle(ro.status)}>{ro.status}</span>
+                <span style={styles.badgeMuted}>Attachments: {attachmentCount}</span>
+              </div>
+            </div>
+
+            <div style={{ ...styles.summaryGrid, marginTop: 12 }}>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Service Price</div><strong>₱{financials.labor.toLocaleString()}</strong></div>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Parts Price</div><strong>₱{financials.parts.toLocaleString()}</strong></div>
+              <div style={styles.metricMini}><div style={styles.mutedLabel}>Total</div><strong>₱{financials.total.toLocaleString()}</strong></div>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <TextArea label="Customer-visible Findings" value={ro.customerVisibleFindings} onChange={(value) => updateRO(ro.id, { customerVisibleFindings: value })} />
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <TextArea label="Recommendations Summary" value={ro.recommendationsSummary} onChange={(value) => updateRO(ro.id, { recommendationsSummary: value })} />
+            </div>
+
+            <div style={{ marginTop: 12, ...styles.wrapRow }}>
+              <button style={styles.secondaryButton} onClick={() => printCustomerSummary(ro, parts)}><Printer size={14} /> Print Summary</button>
+              <button style={styles.secondaryButton} onClick={() => downloadCustomerSummaryPdf(ro, parts)}><FileText size={14} /> Download PDF</button>
+              <button style={styles.secondaryButton} onClick={() => sendCustomerSummarySmsLink(ro, parts)}><MessageSquare size={14} /> Send via SMS Link</button>
+              <button style={styles.secondaryButton} onClick={() => sendCustomerSummaryEmail(ro, parts)}><FileText size={14} /> Send via Email</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const BillingView = () => (
     <div>
       <h2 style={styles.heading}>Billing + QC + Release + Margin</h2>
@@ -4723,6 +4979,7 @@ export default function App() {
         <NavButton icon={<Wrench size={16} />} label="Shop" onClick={() => setView("shop")} />
         <NavButton icon={<Users size={16} />} label="Tech" onClick={() => setView("tech")} />
         <NavButton icon={<Receipt size={16} />} label="Billing" onClick={() => setView("billing")} />
+        <NavButton icon={<FileText size={16} />} label="Customer Summary" onClick={() => setView("customerSummary")} />
         <NavButton icon={<History size={16} />} label="History" onClick={() => setView("history")} />
         <NavButton icon={<RotateCcw size={16} />} label="Back Job" onClick={() => setView("backJob")} />
         <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" onClick={() => setView("purchasing")} />
@@ -4738,6 +4995,7 @@ export default function App() {
         {view === "shop" && <ShopView />}
         {view === "tech" && <TechView />}
         {view === "billing" && <BillingView />}
+        {view === "customerSummary" && <CustomerSummaryView />}
         {view === "history" && <HistoryView />}
         {view === "backJob" && <BackJobView />}
         {view === "purchasing" && <PurchasingView />}
