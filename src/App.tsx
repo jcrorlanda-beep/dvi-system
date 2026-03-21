@@ -42,6 +42,7 @@ type ViewKey =
   | "tech"
   | "billing"
   | "history"
+  | "backJob"
   | "purchasing"
   | "inventory";
 
@@ -463,6 +464,38 @@ type CustomerHistoryRecord = {
   repeatIssueCategories: string[];
 };
 
+
+type BackJobStatus = "Pending" | "In Progress" | "Resolved" | "Released";
+type BackJobCostType = "Warranty" | "Internal" | "Customer";
+
+type BackJobRecord = {
+  id: string;
+  reportDate: number;
+  takeInDate: string;
+  plateNumber: string;
+  customerName: string;
+  vehicle: string;
+  initialInvoiceNumber: string;
+  initialReleaseDate: string;
+  initialConcern: string;
+  initialMechanic: string;
+  qcPerformedBy: string;
+  backJobInvoiceNumber: string;
+  currentMechanic: string;
+  supportingMechanics: string[];
+  backJobType: string;
+  findings: string;
+  fixPerformed: string;
+  status: BackJobStatus;
+  costType: BackJobCostType;
+  costPhp: number;
+  rootCauseCategory: string;
+  rootCauseNotes: string;
+  stageResponsible: string;
+  linkedOriginalRoId?: string;
+  linkedOriginalRoNumber?: string;
+};
+
 /* =========================
    SEED / DEFAULTS
 ========================= */
@@ -471,7 +504,7 @@ const USERS: User[] = [{ username: "admin", password: "admin123", role: "Admin" 
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 12D — Parts + Supplier Flow Completion";
+const BUILD_VERSION = "Phase 13A — Back Job System";
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -1330,6 +1363,7 @@ export default function App() {
 
   const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>("phase10_ros", []).map((ro) => normalizeLegacyRepairOrder(ro)));
   const [parts, setParts] = useState<PartRequest[]>(() => safeLoad("phase10_parts", []));
+  const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>("phase13a_backjobs", []));
 
   useEffect(() => {
     localStorage.setItem("phase10_ros", JSON.stringify(ros));
@@ -1338,6 +1372,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("phase10_parts", JSON.stringify(parts));
   }, [parts]);
+
+  useEffect(() => {
+    localStorage.setItem("phase13a_backjobs", JSON.stringify(backJobs));
+  }, [backJobs]);
 
   useEffect(() => {
     localStorage.setItem("phase10_techs", JSON.stringify(technicians));
@@ -2369,6 +2407,47 @@ export default function App() {
     );
   };
 
+  const createBackJobFromRO = (roId: string) => {
+    const ro = ros.find((item) => item.id === roId);
+    if (!ro) return;
+    const financials = getROFinancials(ro);
+    const primaryLine = ro.workLines.find((line) => line.primaryTechnician || line.technician);
+    const qcInspector = ro.qcChecklist?.inspector || "";
+    const newBackJob: BackJobRecord = {
+      id: uid(),
+      reportDate: Date.now(),
+      takeInDate: new Date().toISOString().slice(0, 10),
+      plateNumber: ro.plate,
+      customerName: ro.customer,
+      vehicle: ro.vehicle,
+      initialInvoiceNumber: ro.invoiceNumber || ro.roNumber,
+      initialReleaseDate: ro.releaseChecklist.releasedAt ? new Date(ro.releaseChecklist.releasedAt).toISOString().slice(0, 10) : "",
+      initialConcern: ro.returnReason || ro.customerVisibleFindings || "Follow-up / Recheck",
+      initialMechanic: primaryLine ? getPrimaryTechName(primaryLine) : "",
+      qcPerformedBy: qcInspector,
+      backJobInvoiceNumber: `BJ-${Date.now()}`,
+      currentMechanic: primaryLine ? getPrimaryTechName(primaryLine) : "",
+      supportingMechanics: primaryLine ? getSupportingTechs(primaryLine) : [],
+      backJobType: ro.isReturnJob ? "Repeat Issue" : "Follow-up / Recheck",
+      findings: "",
+      fixPerformed: "",
+      status: "Pending",
+      costType: "Warranty",
+      costPhp: round2(financials.balance),
+      rootCauseCategory: "",
+      rootCauseNotes: "",
+      stageResponsible: "",
+      linkedOriginalRoId: ro.id,
+      linkedOriginalRoNumber: ro.roNumber,
+    };
+    setBackJobs((prev) => [newBackJob, ...prev]);
+    setView("backJob");
+  };
+
+  const updateBackJob = (id: string, patch: Partial<BackJobRecord>) => {
+    setBackJobs((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
   /* =========================
      DERIVED
   ========================= */
@@ -2386,8 +2465,9 @@ export default function App() {
       released: ros.filter((r) => r.status === "Released").length,
       closed: ros.filter((r) => r.status === "Closed").length,
       returnJobs: ros.filter((r) => r.isReturnJob).length,
+      backJobs: backJobs.length,
     }),
-    [ros],
+    [ros, backJobs],
   );
 
   const dailySnapshot = useMemo(() => buildDailySnapshot(ros), [ros]);
@@ -3311,9 +3391,12 @@ export default function App() {
     <div>
       <div style={styles.rowBetween}>
         <h2 style={styles.heading}>Repair Orders</h2>
-        <button style={styles.primaryButton} onClick={createRO}>
-          + Create Blank RO
-        </button>
+        <div style={styles.wrapRow}>
+          <button style={styles.secondaryButton} onClick={() => setView("backJob")}>Open Back Jobs</button>
+          <button style={styles.primaryButton} onClick={createRO}>
+            + Create Blank RO
+          </button>
+        </div>
       </div>
 
       {ros.map((ro) => (
@@ -3467,9 +3550,12 @@ export default function App() {
             </div>
           )}
 
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 12, ...styles.wrapRow }}>
             <button style={styles.secondaryButton} onClick={() => addWorkLine(ro.id)}>
               + Add Work Line
+            </button>
+            <button style={styles.secondaryButton} onClick={() => createBackJobFromRO(ro.id)}>
+              <RotateCcw size={14} /> Create Back Job
             </button>
           </div>
 
@@ -4507,6 +4593,19 @@ export default function App() {
                         <span>Paid: ₱{f.paid.toLocaleString()}</span>
                         <span>Balance: ₱{f.balance.toLocaleString()}</span>
                       </div>
+
+                      {backJobs.filter((item) => item.linkedOriginalRoId === ro.id).length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>Back Job Records</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {backJobs.filter((item) => item.linkedOriginalRoId === ro.id).map((item) => (
+                              <span key={item.id} style={styles.badgeDanger}>
+                                {item.backJobInvoiceNumber || "Back Job"} • {item.status}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -4514,6 +4613,76 @@ export default function App() {
           </div>
         );
       })}
+    </div>
+  );
+
+  const BackJobView = () => (
+    <div>
+      <div style={styles.rowBetween}>
+        <h2 style={styles.heading}>Back Job Management</h2>
+        <span style={styles.badgeDark}>{backJobs.length} record(s)</span>
+      </div>
+
+      {backJobs.length === 0 && (
+        <div style={styles.cardBlock}>
+          No back jobs yet. Create one from a released or historical RO using the Create Back Job button.
+        </div>
+      )}
+
+      {backJobs.map((item) => (
+        <div key={item.id} style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700 }}>{item.backJobInvoiceNumber || "Back Job"}</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Linked RO: {item.linkedOriginalRoNumber || "-"} • {item.plateNumber || "No Plate"} • {item.customerName || "No Customer"}
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <span style={item.costType === "Customer" ? styles.badgeBlue : item.costType === "Internal" ? styles.badgeWarn : styles.badgeGood}>{item.costType}</span>
+              <span style={item.status === "Released" ? styles.badgeGood : item.status === "Resolved" ? styles.badgeBlue : item.status === "In Progress" ? styles.badgeWarn : styles.badgeMuted}>{item.status}</span>
+            </div>
+          </div>
+
+          <div style={{ ...styles.formGrid, marginTop: 12 }}>
+            <input style={styles.input} placeholder="Report Date" type="date" value={item.reportDate ? new Date(item.reportDate).toISOString().slice(0,10) : ""} onChange={(e) => updateBackJob(item.id, { reportDate: e.target.value ? new Date(e.target.value).getTime() : Date.now() })} />
+            <input style={styles.input} placeholder="Back Job Take-In Date" type="date" value={item.takeInDate} onChange={(e) => updateBackJob(item.id, { takeInDate: e.target.value })} />
+            <input style={styles.input} placeholder="Plate Number" value={item.plateNumber} onChange={(e) => updateBackJob(item.id, { plateNumber: e.target.value.toUpperCase() })} />
+            <input style={styles.input} placeholder="Customer Name" value={item.customerName} onChange={(e) => updateBackJob(item.id, { customerName: e.target.value })} />
+            <input style={styles.input} placeholder="Vehicle" value={item.vehicle} onChange={(e) => updateBackJob(item.id, { vehicle: e.target.value })} />
+            <input style={styles.input} placeholder="Initial Invoice #" value={item.initialInvoiceNumber} onChange={(e) => updateBackJob(item.id, { initialInvoiceNumber: e.target.value })} />
+            <input style={styles.input} placeholder="Initial Release Date" type="date" value={item.initialReleaseDate} onChange={(e) => updateBackJob(item.id, { initialReleaseDate: e.target.value })} />
+            <input style={styles.input} placeholder="Initial Mechanic" value={item.initialMechanic} onChange={(e) => updateBackJob(item.id, { initialMechanic: e.target.value })} />
+            <input style={styles.input} placeholder="QC Performed By" value={item.qcPerformedBy} onChange={(e) => updateBackJob(item.id, { qcPerformedBy: e.target.value })} />
+            <input style={styles.input} placeholder="Back Job Invoice #" value={item.backJobInvoiceNumber} onChange={(e) => updateBackJob(item.id, { backJobInvoiceNumber: e.target.value })} />
+            <input style={styles.input} placeholder="Current Mechanic" value={item.currentMechanic} onChange={(e) => updateBackJob(item.id, { currentMechanic: e.target.value })} />
+            <input style={styles.input} placeholder="Supporting Mechanics (comma separated)" value={item.supportingMechanics.join(", ")} onChange={(e) => updateBackJob(item.id, { supportingMechanics: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} />
+            <input style={styles.input} placeholder="Back Job Type" value={item.backJobType} onChange={(e) => updateBackJob(item.id, { backJobType: e.target.value })} />
+            <select style={styles.input} value={item.status} onChange={(e) => updateBackJob(item.id, { status: e.target.value as BackJobStatus })}>
+              {["Pending", "In Progress", "Resolved", "Released"].map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+            <select style={styles.input} value={item.costType} onChange={(e) => updateBackJob(item.id, { costType: e.target.value as BackJobCostType })}>
+              {["Warranty", "Internal", "Customer"].map((costType) => <option key={costType} value={costType}>{costType}</option>)}
+            </select>
+            <input style={styles.input} type="number" placeholder="Cost PHP" value={item.costPhp} onChange={(e) => updateBackJob(item.id, { costPhp: Number(e.target.value) || 0 })} />
+            <input style={styles.input} placeholder="Root Cause Category" value={item.rootCauseCategory} onChange={(e) => updateBackJob(item.id, { rootCauseCategory: e.target.value })} />
+            <input style={styles.input} placeholder="Stage Responsible" value={item.stageResponsible} onChange={(e) => updateBackJob(item.id, { stageResponsible: e.target.value })} />
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <TextArea label="Initial Concern" value={item.initialConcern} onChange={(value) => updateBackJob(item.id, { initialConcern: value })} />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <TextArea label="Findings" value={item.findings} onChange={(value) => updateBackJob(item.id, { findings: value })} />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <TextArea label="Fix Performed" value={item.fixPerformed} onChange={(value) => updateBackJob(item.id, { fixPerformed: value })} />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <TextArea label="Root Cause Notes" value={item.rootCauseNotes} onChange={(value) => updateBackJob(item.id, { rootCauseNotes: value })} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 
@@ -4555,6 +4724,7 @@ export default function App() {
         <NavButton icon={<Users size={16} />} label="Tech" onClick={() => setView("tech")} />
         <NavButton icon={<Receipt size={16} />} label="Billing" onClick={() => setView("billing")} />
         <NavButton icon={<History size={16} />} label="History" onClick={() => setView("history")} />
+        <NavButton icon={<RotateCcw size={16} />} label="Back Job" onClick={() => setView("backJob")} />
         <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" onClick={() => setView("purchasing")} />
         <NavButton icon={<Warehouse size={16} />} label="Inventory" onClick={() => setView("inventory")} />
       </aside>
@@ -4569,6 +4739,7 @@ export default function App() {
         {view === "tech" && <TechView />}
         {view === "billing" && <BillingView />}
         {view === "history" && <HistoryView />}
+        {view === "backJob" && <BackJobView />}
         {view === "purchasing" && <PurchasingView />}
         {view === "inventory" && <InventoryView />}
       </main>
