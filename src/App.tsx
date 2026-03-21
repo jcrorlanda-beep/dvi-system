@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   XCircle,
   Search,
+  BarChart3,
 } from "lucide-react";
 
 /* =========================
@@ -45,6 +46,7 @@ type ViewKey =
   | "history"
   | "backJob"
   | "activityLogs"
+  | "salesReports"
   | "purchasing"
   | "inventory";
 
@@ -516,12 +518,33 @@ type ActivityLogEntry = {
     | "Release"
     | "Back Job"
     | "Customer Summary"
-    | "Activity Logs";
+    | "Activity Logs"
+    | "Sales";
   action: string;
   recordReference: string;
   oldValue?: string;
   newValue?: string;
   note?: string;
+};
+
+type SalesEntry = {
+  id: string;
+  entryDate: string;
+  grossSales: number;
+  tireSales: number;
+  netSalesLessTires: number;
+  notes: string;
+  encodedBy: string;
+  encodedRole: UserRole | string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type SalesForm = {
+  entryDate: string;
+  grossSales: string;
+  tireSales: string;
+  notes: string;
 };
 
 /* =========================
@@ -536,7 +559,7 @@ const USERS: User[] = [
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 13C — Activity Logs System";
+const BUILD_VERSION = "Phase 13D — Sales Report System";
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -694,6 +717,13 @@ const DEFAULT_INVENTORY_FORM: InventoryForm = {
   location: "",
 };
 
+const DEFAULT_SALES_FORM: SalesForm = {
+  entryDate: new Date().toISOString().slice(0, 10),
+  grossSales: "",
+  tireSales: "",
+  notes: "",
+};
+
 const DEFAULT_WORK_LINE: ROWorkLine = {
   id: "",
   label: "New Job",
@@ -739,6 +769,22 @@ function safeLoad<T>(key: string, fallback: T): T {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function getMonthKeyFromDateString(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return `${new Date().getFullYear()}-01`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthLabelFromKey(key: string): string {
+  const [year, month] = key.split("-").map(Number);
+  const d = new Date(year || new Date().getFullYear(), Math.max(0, (month || 1) - 1), 1);
+  return d.toLocaleString(undefined, { month: "long", year: "numeric" });
+}
+
+function getDaysInMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0).getDate();
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -1601,6 +1647,8 @@ export default function App() {
   const [parts, setParts] = useState<PartRequest[]>(() => safeLoad("phase10_parts", []));
   const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>("phase13a_backjobs", []));
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>("phase13c_activity_logs", []));
+  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => safeLoad<SalesEntry[]>("phase13d_sales_entries", []));
+  const [salesForm, setSalesForm] = useState<SalesForm>(DEFAULT_SALES_FORM);
 
   useEffect(() => {
     localStorage.setItem("phase10_ros", JSON.stringify(ros));
@@ -1617,6 +1665,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("phase13c_activity_logs", JSON.stringify(activityLogs));
   }, [activityLogs]);
+
+  useEffect(() => {
+    localStorage.setItem("phase13d_sales_entries", JSON.stringify(salesEntries));
+  }, [salesEntries]);
 
   useEffect(() => {
     localStorage.setItem("phase10_techs", JSON.stringify(technicians));
@@ -1741,6 +1793,12 @@ export default function App() {
   const canEditRo = (ro: RepairOrder) => !ro.softLocked || !!ro.lockOverrideReason.trim();
 
   const canViewActivityLogs = user?.role === "Admin" || user?.role === "Manager" || user?.role === "Assistant Manager";
+  const canViewSalesReports = user?.role === "Admin" || user?.role === "Manager" || user?.role === "Assistant Manager";
+  const canEditSalesReports =
+    user?.role === "Admin" ||
+    user?.role === "Manager" ||
+    user?.role === "Assistant Manager" ||
+    user?.role === "Service Advisor";
 
   const stringifyActivityValue = (value: unknown) => {
     if (value === undefined) return undefined;
@@ -2727,11 +2785,11 @@ export default function App() {
       initialInvoiceNumber: ro.invoiceNumber || ro.roNumber,
       initialReleaseDate: ro.releaseChecklist.releasedAt ? new Date(ro.releaseChecklist.releasedAt).toISOString().slice(0, 10) : "",
       initialConcern: ro.returnReason || ro.customerVisibleFindings || "Follow-up / Recheck",
-      initialMechanic: primaryLine ? getPrimaryTechName(primaryLine) : "",
+      initialMechanic: primaryLine ? getPrimaryTechnicianName(primaryLine) : "",
       qcPerformedBy: qcInspector,
       backJobInvoiceNumber: `BJ-${Date.now()}`,
-      currentMechanic: primaryLine ? getPrimaryTechName(primaryLine) : "",
-      supportingMechanics: primaryLine ? getSupportingTechs(primaryLine) : [],
+      currentMechanic: primaryLine ? getPrimaryTechnicianName(primaryLine) : "",
+      supportingMechanics: primaryLine ? getSupportingTechnicianNames(primaryLine) : [],
       backJobType: ro.isReturnJob ? "Repeat Issue" : "Follow-up / Recheck",
       findings: "",
       fixPerformed: "",
@@ -2752,6 +2810,65 @@ export default function App() {
     const existingBackJob = backJobs.find((item) => item.id === id);
     setBackJobs((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
     logActivity({ module: "Back Job", action: "Update Back Job", recordReference: existingBackJob?.backJobInvoiceNumber || id, oldValue: existingBackJob, newValue: patch });
+  };
+
+  const saveSalesEntry = () => {
+    if (!salesForm.entryDate) return;
+    const grossSales = Math.max(0, Number(salesForm.grossSales) || 0);
+    const tireSales = Math.max(0, Number(salesForm.tireSales) || 0);
+    const netSalesLessTires = round2(grossSales - tireSales);
+
+    const existing = salesEntries.find((entry) => entry.entryDate === salesForm.entryDate);
+    const nextEntry: SalesEntry = {
+      id: existing?.id || uid(),
+      entryDate: salesForm.entryDate,
+      grossSales,
+      tireSales,
+      netSalesLessTires,
+      notes: salesForm.notes,
+      encodedBy: user?.username || "System",
+      encodedRole: user?.role || "System",
+      createdAt: existing?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    setSalesEntries((prev) => {
+      const updated = existing
+        ? prev.map((entry) => (entry.entryDate === salesForm.entryDate ? nextEntry : entry))
+        : [nextEntry, ...prev];
+      return updated.sort((a, b) => b.entryDate.localeCompare(a.entryDate));
+    });
+
+    logActivity({
+      module: "Sales",
+      action: existing ? "Update Sales Entry" : "Create Sales Entry",
+      recordReference: salesForm.entryDate,
+      oldValue: existing,
+      newValue: nextEntry,
+    });
+
+    setSalesForm((prev) => ({ ...DEFAULT_SALES_FORM, entryDate: prev.entryDate || DEFAULT_SALES_FORM.entryDate }));
+  };
+
+  const loadSalesEntryToForm = (entry: SalesEntry) => {
+    setSalesForm({
+      entryDate: entry.entryDate,
+      grossSales: String(entry.grossSales),
+      tireSales: String(entry.tireSales),
+      notes: entry.notes,
+    });
+  };
+
+  const deleteSalesEntry = (entryId: string) => {
+    const target = salesEntries.find((entry) => entry.id === entryId);
+    if (!target) return;
+    setSalesEntries((prev) => prev.filter((entry) => entry.id !== entryId));
+    logActivity({
+      module: "Sales",
+      action: "Delete Sales Entry",
+      recordReference: target.entryDate,
+      oldValue: target,
+    });
   };
 
   /* =========================
@@ -3032,6 +3149,66 @@ export default function App() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [activityLogs]);
 
+  const sortedSalesEntries = useMemo(
+    () => salesEntries.slice().sort((a, b) => b.entryDate.localeCompare(a.entryDate)),
+    [salesEntries],
+  );
+
+  const salesCurrentMonthSummary = useMemo(() => {
+    const now = new Date();
+    const monthEntries = salesEntries.filter((entry) => {
+      const d = new Date(entry.entryDate);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    });
+    const totalGrossSales = round2(monthEntries.reduce((sum, entry) => sum + entry.grossSales, 0));
+    const totalTireSales = round2(monthEntries.reduce((sum, entry) => sum + entry.tireSales, 0));
+    const totalNetSalesLessTires = round2(monthEntries.reduce((sum, entry) => sum + entry.netSalesLessTires, 0));
+    const encodedSalesDays = new Set(monthEntries.map((entry) => entry.entryDate)).size;
+    const averageDailySales = encodedSalesDays ? round2(totalNetSalesLessTires / encodedSalesDays) : 0;
+    const monthlyProjection = round2(averageDailySales * getDaysInMonth(now.getFullYear(), now.getMonth()));
+    return {
+      totalGrossSales,
+      totalTireSales,
+      totalNetSalesLessTires,
+      encodedSalesDays,
+      averageDailySales,
+      monthlyProjection,
+    };
+  }, [salesEntries]);
+
+  const yearlySalesTable = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const rows = Array.from({ length: 12 }, (_, monthIndex) => {
+      const monthEntries = salesEntries.filter((entry) => {
+        const d = new Date(entry.entryDate);
+        return d.getFullYear() === year && d.getMonth() === monthIndex;
+      });
+      const grossSales = round2(monthEntries.reduce((sum, entry) => sum + entry.grossSales, 0));
+      const tireSales = round2(monthEntries.reduce((sum, entry) => sum + entry.tireSales, 0));
+      const netSalesLessTires = round2(monthEntries.reduce((sum, entry) => sum + entry.netSalesLessTires, 0));
+      const encodedSalesDays = new Set(monthEntries.map((entry) => entry.entryDate)).size;
+      const averageDailySales = encodedSalesDays ? round2(netSalesLessTires / encodedSalesDays) : 0;
+      const monthlyProjection = round2(averageDailySales * getDaysInMonth(year, monthIndex));
+      return {
+        key: `${year}-${String(monthIndex + 1).padStart(2, "0")}`,
+        monthLabel: new Date(year, monthIndex, 1).toLocaleString(undefined, { month: "long" }),
+        grossSales,
+        tireSales,
+        netSalesLessTires,
+        encodedSalesDays,
+        averageDailySales,
+        monthlyProjection,
+      };
+    });
+    const monthsWithEntries = rows.filter((row) => row.encodedSalesDays > 0);
+    const averageMonthlySales = monthsWithEntries.length
+      ? round2(monthsWithEntries.reduce((sum, row) => sum + row.netSalesLessTires, 0) / monthsWithEntries.length)
+      : 0;
+    const yearProjection = round2(averageMonthlySales * 12);
+    return { year, rows, averageMonthlySales, yearProjection };
+  }, [salesEntries]);
+
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
     if (!q) return customerHistory;
@@ -3068,6 +3245,7 @@ export default function App() {
         <MoneyCard title="Daily Revenue" value={dailyRevenue} />
         <MoneyCard title="Weekly Revenue" value={weeklyRevenue} />
         <MoneyCard title="Monthly Revenue" value={monthlyRevenue} />
+        <MoneyCard title="Net Sales less Tires" value={salesCurrentMonthSummary.totalNetSalesLessTires} />
         <MoneyCard title="Open Receivables" value={openReceivables} />
         <MetricCard title="Comeback Rate %" value={comebackRate} />
         <MetricCard title="Jobs Today" value={dailySnapshot.jobsToday} />
@@ -5057,6 +5235,144 @@ export default function App() {
   );
 
 
+  const SalesReportsView = () => (
+    <div>
+      <div style={styles.rowBetween}>
+        <h2 style={styles.heading}>Sales Report</h2>
+        <div style={{ color: "#6b7280", fontSize: 13 }}>Currency: PHP only</div>
+      </div>
+
+      {!canViewSalesReports ? (
+        <div style={styles.cardBlock}>You do not have permission to view sales reports.</div>
+      ) : (
+        <>
+          <div style={styles.statsGrid}>
+            <MoneyCard title="Gross Sales (Month)" value={salesCurrentMonthSummary.totalGrossSales} />
+            <MoneyCard title="Tire Sales (Month)" value={salesCurrentMonthSummary.totalTireSales} />
+            <MoneyCard title="Net Sales less Tires" value={salesCurrentMonthSummary.totalNetSalesLessTires} />
+            <MetricCard title="Encoded Sales Days" value={salesCurrentMonthSummary.encodedSalesDays} />
+            <MoneyCard title="Average Daily Sales" value={salesCurrentMonthSummary.averageDailySales} />
+            <MoneyCard title="Monthly Projection" value={salesCurrentMonthSummary.monthlyProjection} />
+            <MoneyCard title="Average Monthly Sales" value={yearlySalesTable.averageMonthlySales} />
+            <MoneyCard title="Year Projection" value={yearlySalesTable.yearProjection} />
+          </div>
+
+          <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+            <div style={styles.cardBlock}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Daily Sales Entry</div>
+              {!canEditSalesReports ? (
+                <div style={{ color: "#6b7280" }}>Only Service Advisor and management can encode sales.</div>
+              ) : (
+                <>
+                  <div style={styles.formGrid}>
+                    <input
+                      style={styles.input}
+                      type="date"
+                      value={salesForm.entryDate}
+                      onChange={(e) => setSalesForm((prev) => ({ ...prev, entryDate: e.target.value }))}
+                    />
+                    <input
+                      style={styles.input}
+                      type="number"
+                      placeholder="Gross Sales PHP"
+                      value={salesForm.grossSales}
+                      onChange={(e) => setSalesForm((prev) => ({ ...prev, grossSales: e.target.value }))}
+                    />
+                    <input
+                      style={styles.input}
+                      type="number"
+                      placeholder="Tire Sales PHP"
+                      value={salesForm.tireSales}
+                      onChange={(e) => setSalesForm((prev) => ({ ...prev, tireSales: e.target.value }))}
+                    />
+                    <input
+                      style={styles.input}
+                      placeholder="Notes"
+                      value={salesForm.notes}
+                      onChange={(e) => setSalesForm((prev) => ({ ...prev, notes: e.target.value }))}
+                    />
+                  </div>
+                  <div style={{ ...styles.summaryRow, marginTop: 10 }}>
+                    <span>Net Sales less Tires: ₱{round2((Number(salesForm.grossSales) || 0) - (Number(salesForm.tireSales) || 0)).toLocaleString()}</span>
+                    <span>Encoded By: {user?.username || "-"}</span>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <button style={styles.primaryButton} onClick={saveSalesEntry}>
+                      Save Sales Entry
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={styles.cardBlock}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Recent Daily Entries</div>
+              {sortedSalesEntries.length === 0 ? (
+                <div style={{ color: "#6b7280" }}>No sales entries yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {sortedSalesEntries.slice(0, 12).map((entry) => (
+                    <div key={entry.id} style={styles.logRow}>
+                      <div style={styles.rowBetween}>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{entry.entryDate}</div>
+                          <div style={{ fontSize: 13, color: "#6b7280" }}>Encoded by {entry.encodedBy} • {entry.encodedRole}</div>
+                        </div>
+                        <div style={styles.wrapRow}>
+                          <span style={styles.badgeBlue}>Net ₱{entry.netSalesLessTires.toLocaleString()}</span>
+                          {canEditSalesReports && <button style={styles.secondaryButton} onClick={() => loadSalesEntryToForm(entry)}>Edit</button>}
+                          {canEditSalesReports && <button style={styles.dangerButton} onClick={() => deleteSalesEntry(entry.id)}>Delete</button>}
+                        </div>
+                      </div>
+                      <div style={{ ...styles.summaryRow, marginTop: 8 }}>
+                        <span>Gross: ₱{entry.grossSales.toLocaleString()}</span>
+                        <span>Tires: ₱{entry.tireSales.toLocaleString()}</span>
+                        <span>Net less Tires: ₱{entry.netSalesLessTires.toLocaleString()}</span>
+                      </div>
+                      {entry.notes && <div style={{ marginTop: 6, fontSize: 13 }}>{entry.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={styles.cardBlock}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Monthly Totals Table — {yearlySalesTable.year}</div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 840 }}>
+                <thead>
+                  <tr>
+                    {["Month", "Gross Sales", "Tire Sales", "Net less Tires", "Encoded Days", "Avg Daily Sales", "Monthly Projection"].map((head) => (
+                      <th key={head} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: "10px 8px", fontSize: 13, color: "#374151" }}>{head}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {yearlySalesTable.rows.map((row) => (
+                    <tr key={row.key}>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>{row.monthLabel}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>₱{row.grossSales.toLocaleString()}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>₱{row.tireSales.toLocaleString()}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>₱{row.netSalesLessTires.toLocaleString()}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>{row.encodedSalesDays}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>₱{row.averageDailySales.toLocaleString()}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f4f6" }}>₱{row.monthlyProjection.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ ...styles.summaryRow, marginTop: 12 }}>
+              <span>Average Monthly Sales: ₱{yearlySalesTable.averageMonthlySales.toLocaleString()}</span>
+              <strong>Year Projection: ₱{yearlySalesTable.yearProjection.toLocaleString()}</strong>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const ActivityLogsView = () => (
     <div>
       <div style={styles.rowBetween}>
@@ -5075,6 +5391,7 @@ export default function App() {
             <MetricCard title="Users With Activity" value={activityLogSummaryByUser.length} />
             <MetricCard title="RO Logs" value={activityLogs.filter((entry) => entry.module === "RO").length} />
             <MetricCard title="Parts Logs" value={activityLogs.filter((entry) => entry.module === "Parts" || entry.module === "Supplier").length} />
+            <MetricCard title="Sales Logs" value={activityLogs.filter((entry) => entry.module === "Sales").length} />
           </div>
 
           <div style={{ ...styles.shopGrid, marginTop: 16 }}>
@@ -5196,6 +5513,7 @@ export default function App() {
         {view === "customerSummary" && <CustomerSummaryView />}
         {view === "history" && <HistoryView />}
         {view === "backJob" && <BackJobView />}
+        {view === "salesReports" && <SalesReportsView />}
         {view === "activityLogs" && <ActivityLogsView />}
         {view === "purchasing" && <PurchasingView />}
         {view === "inventory" && <InventoryView />}
