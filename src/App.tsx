@@ -23,6 +23,9 @@ import {
   UserCog,
   Lock,
   Image,
+  CheckCircle2,
+  XCircle,
+  Search,
 } from "lucide-react";
 
 /* =========================
@@ -165,6 +168,42 @@ type ReleaseChecklist = {
   releasedAt?: number;
 };
 
+type QCResult = "Pending" | "Passed" | "Failed";
+
+type QCFailedLog = {
+  id: string;
+  timestamp: number;
+  inspectedBy: string;
+  notes: string;
+};
+
+type QCChecklist = {
+  workPerformedVerified: boolean;
+  originalConcernResolved: "Yes" | "Partially" | "No";
+  roadTestPerformed: boolean;
+  roadTestResult: string;
+  brakesOk: boolean;
+  steeringOk: boolean;
+  lightsOk: boolean;
+  hornOk: boolean;
+  noLeaks: boolean;
+  fluidLevelsOk: boolean;
+  batterySecured: boolean;
+  noLooseParts: boolean;
+  wheelsSecured: boolean;
+  cleanlinessAcceptable: boolean;
+  toolsRemoved: boolean;
+  finalResult: QCResult;
+  notes: string;
+  inspectedBy: string;
+  inspectedAt?: number;
+  failedLogs: QCFailedLog[];
+  alignmentBeforeReport: string;
+  alignmentBeforeNotes: string;
+  alignmentAfterReport: string;
+  alignmentAfterNotes: string;
+};
+
 type PaymentEntry = {
   id: string;
   timestamp: number;
@@ -220,6 +259,7 @@ type RepairOrder = {
   createdAt: number;
   inspectionCompleted: boolean;
   qcPassed: boolean;
+  qcChecklist: QCChecklist;
   closedAt?: number;
   workLines: ROWorkLine[];
   invoiceStatus: InvoiceStatus;
@@ -244,17 +284,33 @@ type RepairOrder = {
 
 type PartRequest = {
   id: string;
+  requestNumber: string;
   roNumber: string;
   workLineId?: string;
   workLineLabel?: string;
+  plate: string;
+  vehicle: string;
   partName: string;
+  partNumber: string;
   qty: number;
   unitCost: number;
+  notes: string;
+  photos: InspectionPhoto[];
+  urgency: Priority;
+  requestedBy: string;
   status: PartRequestStatus;
   createdAt: number;
   selectedSupplierId?: string;
   inventoryItemId?: string;
   inventoryAllocatedQty?: number;
+  customerPartsSellingPrice: number;
+  customerLaborSellingPrice: number;
+  customerTotalSellingPrice: number;
+  receivedAt?: number;
+  receivedBy?: string;
+  receivedCondition?: "Complete" | "Incomplete" | "Damaged";
+  receivedNotes?: string;
+  receivedPhotoUrl?: string;
 };
 
 type Supplier = {
@@ -269,9 +325,19 @@ type SupplierBid = {
   id: string;
   partRequestId: string;
   supplierId: string;
+  brand: string;
+  quantity: number;
   unitPrice: number;
+  totalCost: number;
   etaDays: number;
+  warrantyNote: string;
+  condition: string;
   notes: string;
+  receiptFiles: string[];
+  shippingReceiptFiles: string[];
+  actualPartPhotos: string[];
+  customerSellingPrice: number;
+  laborSellingPrice: number;
   selected: boolean;
 };
 
@@ -362,9 +428,18 @@ type SupplierForm = {
 
 type BidForm = {
   supplierId: string;
+  brand: string;
+  quantity: string;
   unitPrice: string;
   etaDays: string;
+  warrantyNote: string;
+  condition: string;
   notes: string;
+  receiptUrl: string;
+  shippingReceiptUrl: string;
+  partPhotoUrl: string;
+  customerSellingPrice: string;
+  laborSellingPrice: string;
 };
 
 type InventoryForm = {
@@ -396,7 +471,7 @@ const USERS: User[] = [{ username: "admin", password: "admin123", role: "Admin" 
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 12B — Work Lines + Technician Assignment Core";
+const BUILD_VERSION = "Phase 12D — Parts + Supplier Flow Completion";
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
   { id: "t1", name: "Ramon", role: "Chief Mechanic", clockedIn: true, currentRoNumber: "", currentWorkLine: "", completedJobs: 0 },
@@ -481,6 +556,33 @@ const DEFAULT_RELEASE_CHECKLIST: ReleaseChecklist = {
   releaseNote: "",
 };
 
+const DEFAULT_QC_CHECKLIST: QCChecklist = {
+  workPerformedVerified: false,
+  originalConcernResolved: "Yes",
+  roadTestPerformed: false,
+  roadTestResult: "",
+  brakesOk: false,
+  steeringOk: false,
+  lightsOk: false,
+  hornOk: false,
+  noLeaks: false,
+  fluidLevelsOk: false,
+  batterySecured: false,
+  noLooseParts: false,
+  wheelsSecured: false,
+  cleanlinessAcceptable: false,
+  toolsRemoved: false,
+  finalResult: "Pending",
+  notes: "",
+  inspectedBy: "",
+  failedLogs: [],
+  alignmentBeforeReport: "",
+  alignmentBeforeNotes: "",
+  alignmentAfterReport: "",
+  alignmentAfterNotes: "",
+};
+
+
 const DEFAULT_PAYMENT_FORM: PaymentForm = {
   amount: "",
   method: "Cash",
@@ -504,9 +606,18 @@ const DEFAULT_SUPPLIER_FORM: SupplierForm = {
 
 const DEFAULT_BID_FORM: BidForm = {
   supplierId: "",
+  brand: "",
+  quantity: "",
   unitPrice: "",
   etaDays: "",
+  warrantyNote: "",
+  condition: "",
   notes: "",
+  receiptUrl: "",
+  shippingReceiptUrl: "",
+  partPhotoUrl: "",
+  customerSellingPrice: "",
+  laborSellingPrice: "",
 };
 
 const DEFAULT_INVENTORY_FORM: InventoryForm = {
@@ -736,6 +847,27 @@ function getSupplierName(suppliers: Supplier[], id?: string) {
   return suppliers.find((s) => s.id === id)?.name || "Not selected";
 }
 
+function photosToMultiline(photos: InspectionPhoto[]): string {
+  return photos.map((photo) => photo.url).filter(Boolean).join("\n");
+}
+
+function multilineToPhotos(value: string): InspectionPhoto[] {
+  return value
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((url, index) => ({ id: `part-photo-${index}-${url}`, label: `Photo ${index + 1}`, url }));
+}
+
+function getCustomerSellingTotal(part: PartRequest): number {
+  if (part.customerTotalSellingPrice > 0) return round2(part.customerTotalSellingPrice);
+  return round2((part.customerPartsSellingPrice || 0) + (part.customerLaborSellingPrice || 0));
+}
+
+function getBidUploadCount(bid: SupplierBid): number {
+  return (bid.receiptFiles?.length || 0) + (bid.shippingReceiptFiles?.length || 0) + (bid.actualPartPhotos?.length || 0);
+}
+
 function getPrimaryTechnicianName(line: ROWorkLine): string {
   return (line.primaryTechnician || line.technician || "").trim();
 }
@@ -827,6 +959,7 @@ function normalizeLegacyRepairOrder(ro: Partial<RepairOrder>): RepairOrder {
     createdAt: ro.createdAt || Date.now(),
     inspectionCompleted,
     qcPassed: Boolean(ro.qcPassed),
+    qcChecklist: { ...DEFAULT_QC_CHECKLIST, ...(ro.qcChecklist || {}) },
     closedAt: ro.closedAt,
     workLines: normalizedWorkLines,
     invoiceStatus: ro.invoiceStatus || "Draft",
@@ -1273,7 +1406,7 @@ export default function App() {
             status = "Waiting Parts";
           }
           if (partsSummary === "Ready" && status === "Waiting Parts") {
-            status = "Ready";
+            status = line.primaryTechnician || line.technician ? "In Progress" : "Ready";
           }
           if (partsSummary === "No Parts" && status === "Approved") {
             status = "Ready";
@@ -1295,6 +1428,10 @@ export default function App() {
         inspectionCompleted: normalizedInspectionCompleted,
       });
 
+      const normalizedQcPassed = ro.qcChecklist?.finalResult === "Passed" ? true : Boolean(ro.qcPassed);
+      if (normalizedQcPassed && roStatus === "Quality Check") {
+        roStatus = "Ready Release";
+      }
       const financials = getROFinancials({ ...ro, workLines: recomputedLines });
       const invoiceStatus = getInvoiceStatus(financials.paid, financials.total);
       const releaseStatus = getReleaseStatus(invoiceStatus, ro.releaseChecklist);
@@ -1307,6 +1444,12 @@ export default function App() {
         invoiceStatus,
         releaseStatus,
         inspectionCompleted: normalizedInspectionCompleted,
+        qcPassed: normalizedQcPassed,
+        qcChecklist: {
+          ...DEFAULT_QC_CHECKLIST,
+          ...ro.qcChecklist,
+          failedLogs: Array.isArray(ro.qcChecklist?.failedLogs) ? ro.qcChecklist.failedLogs : [],
+        },
         softLocked,
       };
     });
@@ -1340,6 +1483,7 @@ export default function App() {
       createdAt: Date.now(),
       inspectionCompleted: false,
       qcPassed: false,
+      qcChecklist: { ...DEFAULT_QC_CHECKLIST },
       workLines: [],
       invoiceStatus: "Draft",
       releaseStatus: "Hold",
@@ -1382,6 +1526,7 @@ export default function App() {
       createdAt: Date.now(),
       inspectionCompleted: true,
       qcPassed: false,
+      qcChecklist: { ...DEFAULT_QC_CHECKLIST },
       workLines: generatedWorkLines,
       invoiceStatus: "Draft",
       releaseStatus: "Hold",
@@ -1678,17 +1823,29 @@ export default function App() {
   };
 
   const createPart = (roNumber: string, wl?: ROWorkLine) => {
+    const linkedRo = ros.find((ro) => ro.roNumber === roNumber);
     const nextPart: PartRequest = {
       id: uid(),
+      requestNumber: `PR-${Date.now()}`,
       roNumber,
       workLineId: wl?.id,
       workLineLabel: wl?.label,
+      plate: linkedRo?.plate || "",
+      vehicle: linkedRo?.vehicle || "",
       partName: "",
+      partNumber: "",
       qty: 1,
       unitCost: 0,
+      notes: "",
+      photos: [],
+      urgency: wl?.priority || linkedRo?.priority || "Normal",
+      requestedBy: user?.username || "Service Advisor",
       status: "Draft",
       createdAt: Date.now(),
       inventoryAllocatedQty: 0,
+      customerPartsSellingPrice: 0,
+      customerLaborSellingPrice: 0,
+      customerTotalSellingPrice: 0,
     };
     recomputeAll(ros, [nextPart, ...parts]);
   };
@@ -1732,6 +1889,97 @@ export default function App() {
 
     recomputeAll(nextRos, parts);
     setPaymentForms((prev) => ({ ...prev, [roId]: { ...DEFAULT_PAYMENT_FORM } }));
+  };
+
+  const canPerformQCByName = (technicianName: string) => {
+    const profile = technicians.find((tech) => tech.name.toLowerCase() === technicianName.trim().toLowerCase());
+    return profile ? ["Chief Mechanic", "Senior Mechanic"].includes(profile.role) : false;
+  };
+
+  const updateQCChecklist = (roId: string, patch: Partial<QCChecklist>) => {
+    recomputeAll(
+      ros.map((ro) =>
+        ro.id !== roId
+          ? ro
+          : {
+              ...ro,
+              qcChecklist: {
+                ...ro.qcChecklist,
+                ...patch,
+              },
+              qcPassed:
+                patch.finalResult === "Passed"
+                  ? true
+                  : patch.finalResult === "Failed"
+                  ? false
+                  : ro.qcPassed,
+            },
+      ),
+      parts,
+    );
+  };
+
+  const finalizeQC = (roId: string) => {
+    const target = ros.find((ro) => ro.id === roId);
+    if (!target) return;
+    const qc = { ...DEFAULT_QC_CHECKLIST, ...target.qcChecklist };
+    if (!qc.inspectedBy.trim()) {
+      alert("Select QC inspector first.");
+      return;
+    }
+    if (!canPerformQCByName(qc.inspectedBy)) {
+      alert("Only Chief Mechanic or Senior Mechanic can perform QC.");
+      return;
+    }
+    if (qc.finalResult === "Failed" && !qc.notes.trim()) {
+      alert("QC failed notes are required.");
+      return;
+    }
+
+    const nextRos = ros.map((ro) => {
+      if (ro.id !== roId) return ro;
+      if (qc.finalResult === "Passed") {
+        return {
+          ...ro,
+          qcPassed: true,
+          qcChecklist: {
+            ...qc,
+            inspectedAt: Date.now(),
+          },
+        };
+      }
+
+      const actionable = ro.workLines.filter((line) => line.approvalStatus !== "Declined");
+      const fallbackLineId = actionable.find((line) => line.status === "Done" || line.status === "Quality Check")?.id;
+      return {
+        ...ro,
+        qcPassed: false,
+        qcChecklist: {
+          ...qc,
+          inspectedAt: Date.now(),
+          failedLogs: [
+            {
+              id: uid(),
+              timestamp: Date.now(),
+              inspectedBy: qc.inspectedBy,
+              notes: qc.notes,
+            },
+            ...qc.failedLogs,
+          ],
+        },
+        workLines: ro.workLines.map((line) =>
+          line.id !== fallbackLineId
+            ? line
+            : {
+                ...line,
+                status: "In Progress",
+                overrideNote: `Returned from QC: ${qc.notes}`,
+              },
+        ),
+      };
+    });
+
+    recomputeAll(nextRos, parts);
   };
 
   const updateReleaseChecklist = (roId: string, patch: Partial<ReleaseChecklist>) => {
@@ -1985,14 +2233,27 @@ export default function App() {
     const form = bidForms[partId] || DEFAULT_BID_FORM;
     if (!form.supplierId || !form.unitPrice) return;
 
+    const quantity = Number(form.quantity) || parts.find((part) => part.id === partId)?.qty || 1;
+    const unitPrice = Number(form.unitPrice) || 0;
+
     setSupplierBids((prev) => [
       {
         id: uid(),
         partRequestId: partId,
         supplierId: form.supplierId,
-        unitPrice: Number(form.unitPrice) || 0,
+        brand: form.brand,
+        quantity,
+        unitPrice,
+        totalCost: round2(quantity * unitPrice),
         etaDays: Number(form.etaDays) || 0,
+        warrantyNote: form.warrantyNote,
+        condition: form.condition,
         notes: form.notes,
+        receiptFiles: form.receiptUrl ? [form.receiptUrl] : [],
+        shippingReceiptFiles: form.shippingReceiptUrl ? [form.shippingReceiptUrl] : [],
+        actualPartPhotos: form.partPhotoUrl ? [form.partPhotoUrl] : [],
+        customerSellingPrice: Number(form.customerSellingPrice) || 0,
+        laborSellingPrice: Number(form.laborSellingPrice) || 0,
         selected: false,
       },
       ...prev,
@@ -2020,7 +2281,14 @@ export default function App() {
               ...p,
               selectedSupplierId: bid.supplierId,
               unitCost: bid.unitPrice,
+              qty: bid.quantity || p.qty,
               status: "Supplier Selected",
+              customerPartsSellingPrice: bid.customerSellingPrice || p.customerPartsSellingPrice,
+              customerLaborSellingPrice: bid.laborSellingPrice || p.customerLaborSellingPrice,
+              customerTotalSellingPrice:
+                bid.customerSellingPrice || bid.laborSellingPrice
+                  ? round2((bid.customerSellingPrice || 0) + (bid.laborSellingPrice || 0))
+                  : p.customerTotalSellingPrice,
             }
           : p,
       ),
@@ -2075,8 +2343,28 @@ export default function App() {
               inventoryAllocatedQty: part.qty,
               unitCost: item.avgCost,
               status: "Parts Arrived",
+              receivedAt: Date.now(),
+              receivedBy: user?.username || "Inventory Control",
+              receivedCondition: "Complete",
             }
           : p,
+      ),
+    );
+  };
+
+  const confirmPartsArrival = (partId: string) => {
+    recomputeAll(
+      ros,
+      parts.map((part) =>
+        part.id !== partId
+          ? part
+          : {
+              ...part,
+              status: "Parts Arrived",
+              receivedAt: Date.now(),
+              receivedBy: user?.username || "Inventory Control",
+              receivedCondition: part.receivedCondition || "Complete",
+            },
       ),
     );
   };
@@ -3160,20 +3448,22 @@ export default function App() {
             <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <span style={styles.badgeBlue}>Exterior Photos: {ro.initialExteriorPhotos?.length || 0}</span>
               <span style={styles.badgeMuted}>Take Notes: {ro.takeNotes?.length || 0}</span>
-              {Object.entries(ro.arrivalChecks || DEFAULT_ARRIVAL_CHECKS).map(([key, value]) => (
+              {Object.entries(ro.arrivalChecks || DEFAULT_ARRIVAL_CHECKS).map(([key, value]) => {
+                const arrivalValue = value as ArrivalCheckItem;
+                return (
                 <span
                   key={key}
                   style={
-                    value.status === "Needs Attention"
+                    arrivalValue.status === "Needs Attention"
                       ? styles.badgeDanger
-                      : value.status === "OK"
+                      : arrivalValue.status === "OK"
                       ? styles.badgeGood
                       : styles.badgeMuted
                   }
                 >
-                  {renderArrivalCheckLabel(key as ArrivalCheckKey)}: {value.status}
+                  {renderArrivalCheckLabel(key as ArrivalCheckKey)}: {arrivalValue.status}
                 </span>
-              ))}
+              );})}
             </div>
           )}
 
@@ -3356,103 +3646,113 @@ export default function App() {
       {parts.map((part) => {
         const bids = supplierBids.filter((b) => b.partRequestId === part.id);
         const bidForm = bidForms[part.id] || DEFAULT_BID_FORM;
+        const internalTotal = round2((part.qty || 0) * (part.unitCost || 0));
+        const customerTotal = getCustomerSellingTotal(part);
 
         return (
           <div key={part.id} style={styles.cardBlock}>
-            <div style={styles.wrapRow}>
-              <span style={styles.badgeDark}>{part.roNumber}</span>
-              <span style={styles.badgeMuted}>{part.workLineLabel || "No Work Line"}</span>
-              <input
-                style={styles.input}
-                placeholder="Part Name"
-                value={part.partName}
-                onChange={(e) => updatePart(part.id, { partName: e.target.value })}
-              />
-              <input
-                style={{ ...styles.input, maxWidth: 90 }}
-                type="number"
-                value={part.qty}
-                onChange={(e) => updatePart(part.id, { qty: Number(e.target.value) || 0 })}
-              />
-              <input
-                style={{ ...styles.input, maxWidth: 120 }}
-                type="number"
-                value={part.unitCost}
-                onChange={(e) => updatePart(part.id, { unitCost: Number(e.target.value) || 0 })}
-                placeholder="Unit Cost"
-              />
-              <select
-                style={styles.input}
-                value={part.status}
-                onChange={(e) => updatePart(part.id, { status: e.target.value as PartRequestStatus })}
-              >
-                {[
-                  "Draft",
-                  "Sent to Suppliers",
-                  "Waiting for Bids",
-                  "Supplier Selected",
-                  "Ordered",
-                  "Shipped",
-                  "Parts Arrived",
-                  "Closed",
-                  "Cancelled",
-                ].map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <span style={styles.badgeBlue}>{getSupplierName(suppliers, part.selectedSupplierId)}</span>
+            <div style={styles.rowBetween}>
+              <div style={styles.wrapRow}>
+                <span style={styles.badgeDark}>{part.requestNumber || part.id}</span>
+                <span style={styles.badgeMuted}>{part.roNumber}</span>
+                <span style={styles.badgeBlue}>{part.workLineLabel || "No Work Line"}</span>
+                <span style={part.status === "Parts Arrived" ? styles.badgeGood : styles.badgeWarn}>{part.status}</span>
+              </div>
+              <div style={styles.wrapRow}>
+                <span style={styles.badgeMuted}>Internal Cost ₱{internalTotal.toLocaleString()}</span>
+                <span style={styles.badgeGood}>Customer Total ₱{customerTotal.toLocaleString()}</span>
+              </div>
             </div>
 
             <div style={{ ...styles.formGrid, marginTop: 10 }}>
-              <select
-                style={styles.input}
-                value={bidForm.supplierId}
-                onChange={(e) => updateBidForm(part.id, { supplierId: e.target.value })}
-              >
-                <option value="">Select supplier</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
+              <input style={styles.input} placeholder="Plate" value={part.plate} onChange={(e) => updatePart(part.id, { plate: e.target.value })} />
+              <input style={styles.input} placeholder="Vehicle" value={part.vehicle} onChange={(e) => updatePart(part.id, { vehicle: e.target.value })} />
+              <input style={styles.input} placeholder="Part Name" value={part.partName} onChange={(e) => updatePart(part.id, { partName: e.target.value })} />
+              <input style={styles.input} placeholder="Part Number" value={part.partNumber} onChange={(e) => updatePart(part.id, { partNumber: e.target.value })} />
+              <input style={styles.input} type="number" placeholder="Quantity" value={part.qty} onChange={(e) => updatePart(part.id, { qty: Number(e.target.value) || 0 })} />
+              <select style={styles.input} value={part.urgency} onChange={(e) => updatePart(part.id, { urgency: e.target.value as Priority })}>
+                {["Low", "Normal", "High", "Urgent"].map((level) => <option key={level} value={level}>{level}</option>)}
+              </select>
+              <input style={styles.input} placeholder="Requested By" value={part.requestedBy} onChange={(e) => updatePart(part.id, { requestedBy: e.target.value })} />
+              <select style={styles.input} value={part.status} onChange={(e) => updatePart(part.id, { status: e.target.value as PartRequestStatus })}>
+                {["Draft", "Sent to Suppliers", "Waiting for Bids", "Supplier Selected", "Ordered", "Shipped", "Parts Arrived", "Closed", "Cancelled"].map((s) => (
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              <input
-                style={styles.input}
-                type="number"
-                placeholder="Bid unit price"
-                value={bidForm.unitPrice}
-                onChange={(e) => updateBidForm(part.id, { unitPrice: e.target.value })}
-              />
-              <input
-                style={styles.input}
-                type="number"
-                placeholder="ETA days"
-                value={bidForm.etaDays}
-                onChange={(e) => updateBidForm(part.id, { etaDays: e.target.value })}
-              />
-              <input
-                style={styles.input}
-                placeholder="Bid notes"
-                value={bidForm.notes}
-                onChange={(e) => updateBidForm(part.id, { notes: e.target.value })}
+            </div>
+
+            <div style={{ ...styles.formGrid, marginTop: 10 }}>
+              <input style={styles.input} type="number" placeholder="Internal Unit Cost" value={part.unitCost} onChange={(e) => updatePart(part.id, { unitCost: Number(e.target.value) || 0 })} />
+              <input style={styles.input} type="number" placeholder="Customer Parts Selling Price" value={part.customerPartsSellingPrice} onChange={(e) => updatePart(part.id, { customerPartsSellingPrice: Number(e.target.value) || 0 })} />
+              <input style={styles.input} type="number" placeholder="Customer Labor Price" value={part.customerLaborSellingPrice} onChange={(e) => updatePart(part.id, { customerLaborSellingPrice: Number(e.target.value) || 0 })} />
+              <input style={styles.input} type="number" placeholder="Customer Total Price" value={part.customerTotalSellingPrice} onChange={(e) => updatePart(part.id, { customerTotalSellingPrice: Number(e.target.value) || 0 })} />
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <TextArea label="Request Notes" value={part.notes} onChange={(value) => updatePart(part.id, { notes: value })} />
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <TextArea
+                label="Part Photo URLs (one per line)"
+                value={photosToMultiline(part.photos || [])}
+                onChange={(value) => updatePart(part.id, { photos: multilineToPhotos(value) })}
               />
             </div>
 
             <div style={{ marginTop: 10, ...styles.wrapRow }}>
               <button style={styles.secondaryButton} onClick={() => addBid(part.id)}>
-                <ShoppingCart size={14} /> Add Bid
+                <ShoppingCart size={14} /> Add Supplier Bid
+              </button>
+              <button style={styles.secondaryButton} onClick={() => confirmPartsArrival(part.id)}>
+                <Package size={14} /> Confirm Parts Arrived
               </button>
               {inventory.map((item) => (
-                <button
-                  key={item.id}
-                  style={styles.secondaryButton}
-                  onClick={() => allocateInventoryToPart(part.id, item.id)}
-                >
+                <button key={item.id} style={styles.secondaryButton} onClick={() => allocateInventoryToPart(part.id, item.id)}>
                   Use {item.partName}
                 </button>
               ))}
+            </div>
+
+            {(part.receivedAt || part.receivedBy || part.receivedCondition || part.receivedNotes || part.receivedPhotoUrl) && (
+              <div style={{ ...styles.innerBlock, marginTop: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Parts Arrival Confirmation</div>
+                <div style={styles.formGrid}>
+                  <input style={styles.input} placeholder="Received By" value={part.receivedBy || ""} onChange={(e) => updatePart(part.id, { receivedBy: e.target.value })} />
+                  <select style={styles.input} value={part.receivedCondition || "Complete"} onChange={(e) => updatePart(part.id, { receivedCondition: e.target.value as "Complete" | "Incomplete" | "Damaged" })}>
+                    {["Complete", "Incomplete", "Damaged"].map((condition) => <option key={condition} value={condition}>{condition}</option>)}
+                  </select>
+                  <input style={styles.input} placeholder="Received Photo URL" value={part.receivedPhotoUrl || ""} onChange={(e) => updatePart(part.id, { receivedPhotoUrl: e.target.value })} />
+                  <input style={styles.input} placeholder="Received Time" value={part.receivedAt ? new Date(part.receivedAt).toLocaleString() : ""} disabled />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <TextArea label="Arrival Notes" value={part.receivedNotes || ""} onChange={(value) => updatePart(part.id, { receivedNotes: value })} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ ...styles.innerBlock, marginTop: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Supplier Bidding</div>
+              <div style={styles.formGrid}>
+                <select style={styles.input} value={bidForm.supplierId} onChange={(e) => updateBidForm(part.id, { supplierId: e.target.value })}>
+                  <option value="">Select supplier</option>
+                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <input style={styles.input} placeholder="Brand" value={bidForm.brand} onChange={(e) => updateBidForm(part.id, { brand: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Quantity" value={bidForm.quantity} onChange={(e) => updateBidForm(part.id, { quantity: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Unit Cost PHP" value={bidForm.unitPrice} onChange={(e) => updateBidForm(part.id, { unitPrice: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Delivery Time (days)" value={bidForm.etaDays} onChange={(e) => updateBidForm(part.id, { etaDays: e.target.value })} />
+                <input style={styles.input} placeholder="Condition" value={bidForm.condition} onChange={(e) => updateBidForm(part.id, { condition: e.target.value })} />
+                <input style={styles.input} placeholder="Warranty Note" value={bidForm.warrantyNote} onChange={(e) => updateBidForm(part.id, { warrantyNote: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Customer Parts Selling Price" value={bidForm.customerSellingPrice} onChange={(e) => updateBidForm(part.id, { customerSellingPrice: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Labor Selling Price" value={bidForm.laborSellingPrice} onChange={(e) => updateBidForm(part.id, { laborSellingPrice: e.target.value })} />
+                <input style={styles.input} placeholder="Receipt File URL" value={bidForm.receiptUrl} onChange={(e) => updateBidForm(part.id, { receiptUrl: e.target.value })} />
+                <input style={styles.input} placeholder="Shipping Receipt URL" value={bidForm.shippingReceiptUrl} onChange={(e) => updateBidForm(part.id, { shippingReceiptUrl: e.target.value })} />
+                <input style={styles.input} placeholder="Actual Part Photo URL" value={bidForm.partPhotoUrl} onChange={(e) => updateBidForm(part.id, { partPhotoUrl: e.target.value })} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <TextArea label="Supplier Bid Notes" value={bidForm.notes} onChange={(value) => updateBidForm(part.id, { notes: value })} />
+              </div>
             </div>
 
             {bids.length > 0 && (
@@ -3461,16 +3761,20 @@ export default function App() {
                   <div key={bid.id} style={styles.logRow}>
                     <div style={styles.rowBetween}>
                       <div>
-                        <div style={{ fontWeight: 600 }}>{getSupplierName(suppliers, bid.supplierId)}</div>
+                        <div style={{ fontWeight: 600 }}>{getSupplierName(suppliers, bid.supplierId)} • {bid.brand || "No brand"}</div>
                         <div style={{ fontSize: 13, color: "#6b7280" }}>
-                          ₱{bid.unitPrice.toLocaleString()} • ETA {bid.etaDays} day(s)
+                          Qty {bid.quantity} • Unit ₱{bid.unitPrice.toLocaleString()} • Total ₱{bid.totalCost.toLocaleString()} • ETA {bid.etaDays} day(s)
+                        </div>
+                        <div style={{ fontSize: 13, color: "#6b7280" }}>
+                          Warranty: {bid.warrantyNote || "-"} • Condition: {bid.condition || "-"} • Uploads: {getBidUploadCount(bid)}
+                        </div>
+                        <div style={{ fontSize: 13, color: "#111827", marginTop: 4 }}>
+                          Customer selling: ₱{round2((bid.customerSellingPrice || 0) + (bid.laborSellingPrice || 0)).toLocaleString()}
                         </div>
                       </div>
                       <div style={styles.wrapRow}>
                         {bid.selected && <span style={styles.badgeGood}>Selected</span>}
-                        <button style={styles.secondaryButton} onClick={() => selectBid(bid.id)}>
-                          Select
-                        </button>
+                        <button style={styles.secondaryButton} onClick={() => selectBid(bid.id)}>Select</button>
                       </div>
                     </div>
                     {bid.notes && <div style={{ marginTop: 6, fontSize: 13 }}>{bid.notes}</div>}
@@ -3626,7 +3930,7 @@ export default function App() {
 
   const BillingView = () => (
     <div>
-      <h2 style={styles.heading}>Billing + Release + Margin</h2>
+      <h2 style={styles.heading}>Billing + QC + Release + Margin</h2>
 
       {ros.map((ro) => {
         const financials = getROFinancials(ro);
@@ -3661,7 +3965,7 @@ export default function App() {
                 >
                   {ro.releaseStatus}
                 </span>
-                <button style={styles.secondaryButton} onClick={() => window.print()}>
+                <button style={styles.secondaryButton} onClick={() => printRepairOrder(ro)}>
                   <Printer size={14} /> Print
                 </button>
               </div>
@@ -3814,15 +4118,70 @@ export default function App() {
                 />
               </div>
 
-              <div style={{ marginTop: 10 }}>
-                <label style={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={ro.qcPassed}
-                    onChange={(e) => updateRO(ro.id, { qcPassed: e.target.checked })}
-                  />
-                  <span>QC Passed (required before Ready Release)</span>
-                </label>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>QC Checklist</div>
+                <div style={styles.issueGrid}>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.workPerformedVerified} onChange={(e) => updateQCChecklist(ro.id, { workPerformedVerified: e.target.checked })} /><span>Work performed verified</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.roadTestPerformed} onChange={(e) => updateQCChecklist(ro.id, { roadTestPerformed: e.target.checked })} /><span>Road test performed if applicable</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.brakesOk} onChange={(e) => updateQCChecklist(ro.id, { brakesOk: e.target.checked })} /><span>Brakes OK</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.steeringOk} onChange={(e) => updateQCChecklist(ro.id, { steeringOk: e.target.checked })} /><span>Steering OK</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.lightsOk} onChange={(e) => updateQCChecklist(ro.id, { lightsOk: e.target.checked })} /><span>Lights OK</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.hornOk} onChange={(e) => updateQCChecklist(ro.id, { hornOk: e.target.checked })} /><span>Horn OK</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.noLeaks} onChange={(e) => updateQCChecklist(ro.id, { noLeaks: e.target.checked })} /><span>No leaks</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.fluidLevelsOk} onChange={(e) => updateQCChecklist(ro.id, { fluidLevelsOk: e.target.checked })} /><span>Fluid levels OK</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.batterySecured} onChange={(e) => updateQCChecklist(ro.id, { batterySecured: e.target.checked })} /><span>Battery secured</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.noLooseParts} onChange={(e) => updateQCChecklist(ro.id, { noLooseParts: e.target.checked })} /><span>No loose parts</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.wheelsSecured} onChange={(e) => updateQCChecklist(ro.id, { wheelsSecured: e.target.checked })} /><span>Wheels secured</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.cleanlinessAcceptable} onChange={(e) => updateQCChecklist(ro.id, { cleanlinessAcceptable: e.target.checked })} /><span>Cleanliness acceptable</span></label>
+                  <label style={styles.checkboxRow}><input type="checkbox" checked={ro.qcChecklist.toolsRemoved} onChange={(e) => updateQCChecklist(ro.id, { toolsRemoved: e.target.checked })} /><span>Tools removed</span></label>
+                </div>
+                <div style={{ ...styles.formGrid, marginTop: 10 }}>
+                  <select style={styles.input} value={ro.qcChecklist.originalConcernResolved} onChange={(e) => updateQCChecklist(ro.id, { originalConcernResolved: e.target.value as QCChecklist["originalConcernResolved"] })}>
+                    {["Yes", "Partially", "No"].map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                  <input style={styles.input} placeholder="Road test result" value={ro.qcChecklist.roadTestResult} onChange={(e) => updateQCChecklist(ro.id, { roadTestResult: e.target.value })} />
+                  <select style={styles.input} value={ro.qcChecklist.inspectedBy} onChange={(e) => updateQCChecklist(ro.id, { inspectedBy: e.target.value })}>
+                    <option value="">QC inspector</option>
+                    {technicians.filter((tech) => ["Chief Mechanic", "Senior Mechanic"].includes(tech.role)).map((tech) => <option key={tech.id} value={tech.name}>{tech.name} • {tech.role}</option>)}
+                  </select>
+                  <select style={styles.input} value={ro.qcChecklist.finalResult} onChange={(e) => updateQCChecklist(ro.id, { finalResult: e.target.value as QCResult })}>
+                    {["Pending", "Passed", "Failed"].map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <TextArea label="QC Notes" value={ro.qcChecklist.notes} onChange={(value) => updateQCChecklist(ro.id, { notes: value })} />
+                </div>
+                {ro.workLines.some((line) => `${line.label} ${line.category}`.toLowerCase().includes("alignment")) && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Alignment Documentation</div>
+                    <div style={styles.formGrid}>
+                      <input style={styles.input} placeholder="Before Alignment Report upload (URL)" value={ro.qcChecklist.alignmentBeforeReport} onChange={(e) => updateQCChecklist(ro.id, { alignmentBeforeReport: e.target.value })} />
+                      <input style={styles.input} placeholder="After Alignment Report upload (URL)" value={ro.qcChecklist.alignmentAfterReport} onChange={(e) => updateQCChecklist(ro.id, { alignmentAfterReport: e.target.value })} />
+                    </div>
+                    <div style={{ ...styles.formGrid, marginTop: 10 }}>
+                      <input style={styles.input} placeholder="Before Alignment Notes" value={ro.qcChecklist.alignmentBeforeNotes} onChange={(e) => updateQCChecklist(ro.id, { alignmentBeforeNotes: e.target.value })} />
+                      <input style={styles.input} placeholder="After Alignment Notes" value={ro.qcChecklist.alignmentAfterNotes} onChange={(e) => updateQCChecklist(ro.id, { alignmentAfterNotes: e.target.value })} />
+                    </div>
+                  </div>
+                )}
+                <div style={{ marginTop: 10, ...styles.wrapRow }}>
+                  <span style={ro.qcChecklist.finalResult === "Passed" ? styles.badgeGood : ro.qcChecklist.finalResult === "Failed" ? styles.badgeDanger : styles.badgeMuted}>QC: {ro.qcChecklist.finalResult}</span>
+                  {ro.qcChecklist.inspectedAt && <span style={styles.badgeMuted}>QC at {new Date(ro.qcChecklist.inspectedAt).toLocaleString()}</span>}
+                  <button style={ro.qcChecklist.finalResult === "Failed" ? styles.dangerButton : styles.goodButton} onClick={() => finalizeQC(ro.id)}>
+                    {ro.qcChecklist.finalResult === "Failed" ? "Log QC Failure" : "Finalize QC"}
+                  </button>
+                </div>
+                {ro.qcChecklist.failedLogs.length > 0 && (
+                  <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                    {ro.qcChecklist.failedLogs.slice(0, 3).map((entry) => (
+                      <div key={entry.id} style={styles.logRow}>
+                        <div style={{ fontWeight: 600 }}>QC Failed • {entry.inspectedBy}</div>
+                        <div style={{ fontSize: 13, color: "#6b7280" }}>{new Date(entry.timestamp).toLocaleString()}</div>
+                        <div style={{ fontSize: 13 }}>{entry.notes}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: 10, ...styles.wrapRow }}>
@@ -3857,6 +4216,7 @@ export default function App() {
   const PurchasingView = () => (
     <div>
       <h2 style={styles.heading}>Suppliers + Purchasing</h2>
+      <div style={{ color: "#6b7280", marginBottom: 10 }}>Supplier bids are private. Internal cost is for management and inventory control; customer-facing totals are set separately on each parts request.</div>
 
       <div style={styles.shopGrid}>
         <div style={styles.cardBlock}>
