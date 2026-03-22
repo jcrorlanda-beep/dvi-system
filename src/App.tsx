@@ -559,7 +559,7 @@ const USERS: User[] = [
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 15B — UI Components + Visual System";
+const BUILD_VERSION = "Phase 15C — UX + Workflow Polish";
 
 const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Business intelligence, live operations, and management insights." },
@@ -1667,6 +1667,8 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>("phase13c_activity_logs", []));
   const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => safeLoad<SalesEntry[]>("phase13d_sales_entries", []));
   const [salesForm, setSalesForm] = useState<SalesForm>(DEFAULT_SALES_FORM);
+  const [collapsedRos, setCollapsedRos] = useState<Record<string, boolean>>({});
+  const [collapsedParts, setCollapsedParts] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     localStorage.setItem("phase10_ros", JSON.stringify(ros));
@@ -3498,6 +3500,7 @@ export default function App() {
           <input
             style={styles.input}
             placeholder="Plate Number"
+            autoFocus
             value={inspectionForm.plate}
             onChange={(e) =>
               setInspectionForm((p) => ({ ...p, plate: e.target.value.toUpperCase() }))
@@ -3904,6 +3907,7 @@ export default function App() {
     </div>
   );
 
+
   const ROView = () => (
     <div>
       <div style={styles.rowBetween}>
@@ -3916,327 +3920,366 @@ export default function App() {
         </div>
       </div>
 
-      {ros.map((ro) => (
-        <div key={ro.id} style={styles.cardBlock}>
-          <div style={styles.rowBetween}>
-            <div style={styles.wrapRow}>
-              <input
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                placeholder="Plate"
-                value={ro.plate}
-                onChange={(e) => updateRO(ro.id, { plate: e.target.value })}
-              />
-              <input
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                placeholder="Vehicle"
-                value={ro.vehicle}
-                onChange={(e) => updateRO(ro.id, { vehicle: e.target.value })}
-              />
-              <input
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                placeholder="Customer"
-                value={ro.customer}
-                onChange={(e) => updateRO(ro.id, { customer: e.target.value })}
-              />
-              <input
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                placeholder="Customer Phone"
-                value={ro.customerPhone}
-                onChange={(e) => updateRO(ro.id, { customerPhone: e.target.value })}
-              />
-              <input
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                placeholder="Odometer"
-                value={ro.odometer}
-                onChange={(e) => updateRO(ro.id, { odometer: e.target.value })}
-              />
-              <select
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                value={ro.bay}
-                onChange={(e) => updateRO(ro.id, { bay: e.target.value })}
-              >
-                {["Bay 1", "Bay 2", "Bay 3", "Bay 4", "Bay 5"].map((bay) => (
-                  <option key={bay} value={bay}>
-                    {bay}
-                  </option>
-                ))}
-              </select>
-              <select
-                disabled={!canEditRo(ro)}
-                style={styles.input}
-                value={ro.priority}
-                onChange={(e) => updateRO(ro.id, { priority: e.target.value as Priority })}
-              >
-                {["Low", "Normal", "High", "Urgent"].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-              <span style={styles.badgeDark}>{ro.status}</span>
-              {ro.isReturnJob && <span style={styles.badgeDanger}>Comeback</span>}
-              <button style={styles.secondaryButton} onClick={() => printRepairOrder(ro)}>
-                <Printer size={14} /> Print RO
-              </button>
-              {ro.softLocked && (
-                <span style={styles.badgePurple}>
-                  <Lock size={12} style={{ marginRight: 4 }} /> Released Lock
-                </span>
-              )}
-            </div>
-          </div>
+      {ros.map((ro) => {
+        const roWarnings = getRoWarnings(ro);
+        const isCollapsed = !!collapsedRos[ro.id];
+        const readyCount = ro.workLines.filter((line) => ["Ready", "Approved"].includes(line.status)).length;
+        const progressCount = ro.workLines.filter((line) => line.status === "In Progress").length;
 
-          {ro.softLocked && (
-            <div style={{ ...styles.formGrid, marginTop: 10 }}>
-              <input
-                style={styles.input}
-                placeholder="Override reason to edit released RO"
-                value={ro.lockOverrideReason}
-                onChange={(e) => updateRO(ro.id, { lockOverrideReason: e.target.value })}
-              />
-              <div style={{ color: "#6b7280", fontSize: 13, alignSelf: "center" }}>
-                Flexible mode: provide reason to unlock edits.
-              </div>
-            </div>
-          )}
-
-          {ro.inspectionPhotos.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Inspection Photos</div>
-              <div style={styles.photoGrid}>
-                {ro.inspectionPhotos.map((photo) => (
-                  <div key={photo.id} style={styles.photoCard}>
-                    <div style={{ ...styles.photoPreviewWrap, marginBottom: 8 }}>
-                      {photo.url ? (
-                        <img src={photo.url} alt={photo.label || "Inspection photo"} style={styles.photoPreview} />
-                      ) : (
-                        <div style={styles.photoEmpty}><Image size={18} /> No image</div>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{photo.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {ro.serviceAdvisorNotes && (
-            <div style={{ marginTop: 10, color: "#4b5563" }}>
-              <strong>SA Notes:</strong> {ro.serviceAdvisorNotes}
-            </div>
-          )}
-
-          {(ro.odometer || ro.customerVisibleFindings || ro.recommendationsSummary || ro.inspectionCompleted) && (
-            <div style={{ ...styles.innerBlock, marginTop: 10 }}>
-              <div style={styles.summaryRow}>
-                <span style={styles.badgeMuted}>Odometer: {ro.odometer || "-"}</span>
-                <span style={styles.badgeBlue}>{ro.inspectionCompleted ? "Inspection Complete" : "Waiting Inspection"}</span>
-                <span style={ro.qcPassed ? styles.badgeGood : styles.badgeWarn}>{ro.qcPassed ? "QC Passed" : "QC Pending"}</span>
-              </div>
-              {ro.customerVisibleFindings && <div style={{ marginTop: 8 }}><strong>Findings:</strong> {ro.customerVisibleFindings}</div>}
-              {ro.recommendationsSummary && <div style={{ marginTop: 8 }}><strong>Recommendations:</strong> {ro.recommendationsSummary}</div>}
-            </div>
-          )}
-
-          {((ro.initialExteriorPhotos?.length || 0) > 0 || (ro.takeNotes?.length || 0) > 0) && (
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <span style={styles.badgeBlue}>Exterior Photos: {ro.initialExteriorPhotos?.length || 0}</span>
-              <span style={styles.badgeMuted}>Take Notes: {ro.takeNotes?.length || 0}</span>
-              {Object.entries(ro.arrivalChecks || DEFAULT_ARRIVAL_CHECKS).map(([key, value]) => {
-                const arrivalValue = value as ArrivalCheckItem;
-                return (
-                <span
-                  key={key}
-                  style={
-                    arrivalValue.status === "Needs Attention"
-                      ? styles.badgeDanger
-                      : arrivalValue.status === "OK"
-                      ? styles.badgeGood
-                      : styles.badgeMuted
-                  }
-                >
-                  {renderArrivalCheckLabel(key as ArrivalCheckKey)}: {arrivalValue.status}
-                </span>
-              );})}
-            </div>
-          )}
-
-          <div style={{ marginTop: 12, ...styles.wrapRow }}>
-            <button style={styles.secondaryButton} onClick={() => addWorkLine(ro.id)}>
-              + Add Work Line
-            </button>
-            <button style={styles.secondaryButton} onClick={() => createBackJobFromRO(ro.id)}>
-              <RotateCcw size={14} /> Create Back Job
-            </button>
-          </div>
-
-          {ro.workLines.map((line) => (
-            <div key={line.id} style={styles.innerBlock}>
-              <div style={styles.wrapRow}>
-                <input
-                  disabled={!canEditRo(ro)}
-                  style={styles.input}
-                  value={line.label}
-                  onChange={(e) => updateWorkLine(ro.id, line.id, { label: e.target.value })}
-                />
-                <input
-                  disabled={!canEditRo(ro)}
-                  style={styles.input}
-                  value={line.category}
-                  onChange={(e) => updateWorkLine(ro.id, line.id, { category: e.target.value })}
-                  placeholder="Category"
-                />
-                <select
-                  style={styles.input}
-                  value={line.status}
-                  onChange={(e) =>
-                    updateWorkLine(ro.id, line.id, { status: e.target.value as WorkLineStatus })
-                  }
-                >
-                  {["Pending", "Approved", "Ready", "In Progress", "Waiting Parts", "Quality Check", "Done", "Cancelled"].map(
-                    (s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ),
+        return (
+          <div key={ro.id} style={styles.cardBlock}>
+            <div style={styles.rowBetween}>
+              <div style={{ display: "grid", gap: 8, flex: 1 }}>
+                <div style={styles.wrapRow}>
+                  <span style={styles.badgeDark}>{ro.roNumber}</span>
+                  <span style={getROBadgeStyle(ro.status)}>{ro.status}</span>
+                  <span style={getPriorityStyle(ro.priority)}>{ro.priority}</span>
+                  {ro.isReturnJob && <span style={styles.badgeDanger}>Comeback</span>}
+                  {ro.softLocked && (
+                    <span style={styles.badgePurple}>
+                      <Lock size={12} style={{ marginRight: 4 }} /> Released Lock
+                    </span>
                   )}
-                </select>
-                <select
-                  style={styles.input}
-                  value={line.priority}
-                  onChange={(e) => updateWorkLine(ro.id, line.id, { priority: e.target.value as Priority })}
+                  <span style={styles.badgeMuted}>Ready: {readyCount}</span>
+                  <span style={styles.badgeMuted}>Active: {progressCount}</span>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}>{ro.customer || "No Customer"} • {ro.vehicle || "No Vehicle"} • {ro.plate || "No Plate"}</div>
+                <div style={{ color: "#64748b", fontSize: 13 }}>Bay {ro.bay} • Odometer {ro.odometer || "-"} • Created {new Date(ro.createdAt).toLocaleString()}</div>
+              </div>
+
+              <div style={styles.wrapRow}>
+                <button style={styles.secondaryButton} onClick={() => printRepairOrder(ro)}>
+                  <Printer size={14} /> Print RO
+                </button>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => toggleRoCollapsed(ro.id)}
                 >
-                  {["Low", "Normal", "High", "Urgent"].map((priority) => (
-                    <option key={priority} value={priority}>
-                      {priority}
-                    </option>
+                  {isCollapsed ? "Expand" : "Collapse"}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button style={styles.primaryButton} onClick={() => startNextReadyLine(ro)}>
+                <Play size={14} /> Start Next Work
+              </button>
+              <button style={styles.secondaryButton} onClick={() => markFirstActionableWaitingParts(ro)}>
+                <Package size={14} /> Mark Waiting Parts
+              </button>
+              <button style={styles.secondaryButton} onClick={() => sendFirstActionableToQualityCheck(ro)}>
+                <CheckCircle2 size={14} /> Send to QC
+              </button>
+              <button style={styles.secondaryButton} onClick={() => setView("billing")}>
+                <Receipt size={14} /> Open Billing / Release
+              </button>
+              <button style={styles.secondaryButton} onClick={() => setView("parts")}>
+                <ShoppingCart size={14} /> Open Parts
+              </button>
+              <button style={styles.secondaryButton} onClick={() => setView("customerSummary")}>
+                <FileText size={14} /> Open Summary
+              </button>
+            </div>
+
+            {roWarnings.length > 0 && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: "1px solid #fde68a", background: "#fffbeb", display: "grid", gap: 8 }}>
+                <div style={{ fontWeight: 700, color: "#92400e" }}>Workflow attention needed</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {roWarnings.map((warning) => (
+                    <span key={warning} style={styles.badgeWarn}>⚠ {warning}</span>
                   ))}
-                </select>
-                <input
-                  style={styles.input}
-                  placeholder="Primary Technician"
-                  value={getPrimaryTechnicianName(line)}
-                  onChange={(e) => updatePrimaryTechnician(ro.id, line.id, e.target.value)}
-                />
-                <input
-                  style={styles.input}
-                  placeholder="Supporting Technicians (comma separated)"
-                  value={getSupportingTechnicianNames(line).join(", ")}
-                  onChange={(e) => updateSupportingTechnicians(ro.id, line.id, e.target.value)}
-                />
-                <span style={styles.badgeMuted}>{line.approvalStatus}</span>
-                <span style={line.partsSummary === "Waiting Parts" ? styles.badgeWarn : styles.badgeBlue}>
-                  {line.partsSummary}
-                </span>
-                {line.status === "Ready" && <span style={styles.badgeGood}>Ready to Start</span>}
+                </div>
               </div>
+            )}
 
-              <div style={{ ...styles.wrapRow, marginTop: 10 }}>
-                <button style={styles.secondaryButton} onClick={() => createPart(ro.roNumber, line)}>
-                  <Package size={14} /> Request Part
-                </button>
-                <button style={styles.secondaryButton} onClick={() => startWorkLine(ro.id, line.id)}>
-                  <Play size={14} /> Start
-                </button>
-                <button style={styles.secondaryButton} onClick={() => pauseWorkLine(ro.id, line.id)}>
-                  <Pause size={14} /> Pause
-                </button>
-                <span style={styles.badgeMuted}>Estimate: ₱{line.estimateTotal.toLocaleString()}</span>
-                <span style={styles.badgeMuted}>Actual: {line.actualHours.toFixed(2)}h</span>
-                <span style={styles.badgeMuted}>Sessions: {line.sessions.length}</span>
-                <span style={styles.badgeBlue}>Primary: {getPrimaryTechnicianName(line) || "Unassigned"}</span>
-                <span style={styles.badgeMuted}>Supporting: {getSupportingTechnicianNames(line).length}</span>
-                <span style={styles.badgeMuted}>Assignment Logs: {line.assignmentLog.length}</span>
-              </div>
+            {!isCollapsed && (
+              <>
+                <div style={{ ...styles.formGrid, marginTop: 12 }}>
+                  <input
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    placeholder="Plate"
+                    value={ro.plate}
+                    onChange={(e) => updateRO(ro.id, { plate: e.target.value })}
+                  />
+                  <input
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    placeholder="Vehicle"
+                    value={ro.vehicle}
+                    onChange={(e) => updateRO(ro.id, { vehicle: e.target.value })}
+                  />
+                  <input
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    placeholder="Customer"
+                    value={ro.customer}
+                    onChange={(e) => updateRO(ro.id, { customer: e.target.value })}
+                  />
+                  <input
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    placeholder="Customer Phone"
+                    value={ro.customerPhone}
+                    onChange={(e) => updateRO(ro.id, { customerPhone: e.target.value })}
+                  />
+                  <input
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    placeholder="Odometer"
+                    value={ro.odometer}
+                    onChange={(e) => updateRO(ro.id, { odometer: e.target.value })}
+                  />
+                  <select
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    value={ro.bay}
+                    onChange={(e) => updateRO(ro.id, { bay: e.target.value })}
+                  >
+                    {["Bay 1", "Bay 2", "Bay 3", "Bay 4", "Bay 5"].map((bay) => (
+                      <option key={bay} value={bay}>
+                        {bay}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    disabled={!canEditRo(ro)}
+                    style={styles.input}
+                    value={ro.priority}
+                    onChange={(e) => updateRO(ro.id, { priority: e.target.value as Priority })}
+                  >
+                    {["Low", "Normal", "High", "Urgent"].map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div style={{ marginTop: 12 }}>
-                <div style={styles.rowBetween}>
-                  <div style={{ fontWeight: 700 }}>Workline Photos</div>
-                  <button style={styles.secondaryButton} onClick={() => addWorkLinePhoto(ro.id, line.id)}>
-                    <Camera size={14} /> Add Workline Photo
+                {ro.softLocked && (
+                  <div style={{ ...styles.formGrid, marginTop: 10 }}>
+                    <input
+                      style={styles.input}
+                      placeholder="Override reason to edit released RO"
+                      value={ro.lockOverrideReason}
+                      onChange={(e) => updateRO(ro.id, { lockOverrideReason: e.target.value })}
+                    />
+                    <div style={{ color: "#6b7280", fontSize: 13, alignSelf: "center" }}>
+                      Flexible mode: provide reason to unlock edits.
+                    </div>
+                  </div>
+                )}
+
+                {(ro.odometer || ro.customerVisibleFindings || ro.recommendationsSummary || ro.inspectionCompleted) && (
+                  <div style={{ ...styles.innerBlock, marginTop: 10 }}>
+                    <div style={styles.summaryRow}>
+                      <span style={styles.badgeMuted}>Odometer: {ro.odometer || "-"}</span>
+                      <span style={styles.badgeBlue}>{ro.inspectionCompleted ? "Inspection Complete" : "Waiting Inspection"}</span>
+                      <span style={ro.qcPassed ? styles.badgeGood : styles.badgeWarn}>{ro.qcPassed ? "QC Passed" : "QC Pending"}</span>
+                      <span style={ro.invoiceStatus === "Paid" ? styles.badgeGood : styles.badgeMuted}>Invoice: {ro.invoiceStatus}</span>
+                    </div>
+                    {ro.customerVisibleFindings && <div style={{ marginTop: 8 }}><strong>Findings:</strong> {ro.customerVisibleFindings}</div>}
+                    {ro.recommendationsSummary && <div style={{ marginTop: 8 }}><strong>Recommendations:</strong> {ro.recommendationsSummary}</div>}
+                  </div>
+                )}
+
+                {((ro.initialExteriorPhotos?.length || 0) > 0 || (ro.takeNotes?.length || 0) > 0 || ro.inspectionPhotos.length > 0) && (
+                  <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span style={styles.badgeBlue}>Exterior Photos: {ro.initialExteriorPhotos?.length || 0}</span>
+                    <span style={styles.badgeMuted}>Take Notes: {ro.takeNotes?.length || 0}</span>
+                    <span style={styles.badgeMuted}>Inspection Photos: {ro.inspectionPhotos.length}</span>
+                    {Object.entries(ro.arrivalChecks || DEFAULT_ARRIVAL_CHECKS).map(([key, value]) => {
+                      const arrivalValue = value as ArrivalCheckItem;
+                      return (
+                        <span
+                          key={key}
+                          style={
+                            arrivalValue.status === "Needs Attention"
+                              ? styles.badgeDanger
+                              : arrivalValue.status === "OK"
+                              ? styles.badgeGood
+                              : styles.badgeMuted
+                          }
+                        >
+                          {renderArrivalCheckLabel(key as ArrivalCheckKey)}: {arrivalValue.status}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 12, ...styles.wrapRow }}>
+                  <button style={styles.secondaryButton} onClick={() => addWorkLine(ro.id)}>
+                    + Add Work Line
+                  </button>
+                  <button style={styles.secondaryButton} onClick={() => createBackJobFromRO(ro.id)}>
+                    <RotateCcw size={14} /> Create Back Job
                   </button>
                 </div>
 
-                {line.photos.length > 0 ? (
-                  <div style={{ ...styles.photoGrid, marginTop: 10 }}>
-                    {line.photos.map((photo) => (
-                      <div key={photo.id} style={styles.photoCard}>
-                        <div style={{ ...styles.photoPreviewWrap, marginBottom: 8 }}>
-                          {photo.url ? (
-                            <img src={photo.url} alt={photo.label || "Workline photo"} style={styles.photoPreview} />
-                          ) : (
-                            <div style={styles.photoEmpty}><Image size={18} /> No image</div>
-                          )}
-                        </div>
+                {ro.workLines.map((line) => (
+                  <div key={line.id} style={styles.innerBlock}>
+                    <div style={styles.wrapRow}>
+                      <input
+                        disabled={!canEditRo(ro)}
+                        style={styles.input}
+                        value={line.label}
+                        onChange={(e) => updateWorkLine(ro.id, line.id, { label: e.target.value })}
+                      />
+                      <input
+                        disabled={!canEditRo(ro)}
+                        style={styles.input}
+                        value={line.category}
+                        onChange={(e) => updateWorkLine(ro.id, line.id, { category: e.target.value })}
+                        placeholder="Category"
+                      />
+                      <select
+                        style={styles.input}
+                        value={line.status}
+                        onChange={(e) =>
+                          updateWorkLine(ro.id, line.id, { status: e.target.value as WorkLineStatus })
+                        }
+                      >
+                        {["Pending", "Approved", "Ready", "In Progress", "Waiting Parts", "Quality Check", "Done", "Cancelled"].map(
+                          (s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                      <select
+                        style={styles.input}
+                        value={line.priority}
+                        onChange={(e) => updateWorkLine(ro.id, line.id, { priority: e.target.value as Priority })}
+                      >
+                        {["Low", "Normal", "High", "Urgent"].map((priority) => (
+                          <option key={priority} value={priority}>
+                            {priority}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        style={styles.input}
+                        placeholder="Primary Technician"
+                        value={getPrimaryTechnicianName(line)}
+                        onChange={(e) => updatePrimaryTechnician(ro.id, line.id, e.target.value)}
+                      />
+                      <input
+                        style={styles.input}
+                        placeholder="Supporting Technicians (comma separated)"
+                        value={getSupportingTechnicianNames(line).join(", ")}
+                        onChange={(e) => updateSupportingTechnicians(ro.id, line.id, e.target.value)}
+                      />
+                      <span style={styles.badgeMuted}>{line.approvalStatus}</span>
+                      <span style={line.partsSummary === "Waiting Parts" ? styles.badgeWarn : styles.badgeBlue}>
+                        {line.partsSummary}
+                      </span>
+                      {line.status === "Ready" && <span style={styles.badgeGood}>Ready to Start</span>}
+                    </div>
 
-                        <div style={{ display: "grid", gap: 8 }}>
-                          <input
-                            style={styles.input}
-                            placeholder="Photo label"
-                            value={photo.label}
-                            onChange={(e) =>
-                              updateWorkLinePhoto(ro.id, line.id, photo.id, "label", e.target.value)
-                            }
-                          />
-                          <select
-                            style={styles.input}
-                            value={photo.stage}
-                            onChange={(e) =>
-                              updateWorkLinePhoto(
-                                ro.id,
-                                line.id,
-                                photo.id,
-                                "stage",
-                                e.target.value as WorkLinePhoto["stage"],
-                              )
-                            }
-                          >
-                            {["Before", "During", "After"].map((stage) => (
-                              <option key={stage} value={stage}>
-                                {stage}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            style={styles.input}
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) =>
-                              void uploadWorkLinePhotoFile(ro.id, line.id, photo.id, e.target.files?.[0])
-                            }
-                          />
-                          <input
-                            style={styles.input}
-                            placeholder="Photo URL or paste image link"
-                            value={photo.url.startsWith("data:") ? "" : photo.url}
-                            onChange={(e) =>
-                              updateWorkLinePhoto(ro.id, line.id, photo.id, "url", e.target.value)
-                            }
-                          />
-                        </div>
+                    <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+                      <button style={styles.secondaryButton} onClick={() => createPart(ro.roNumber, line)}>
+                        <Package size={14} /> Request Part
+                      </button>
+                      <button style={styles.secondaryButton} onClick={() => startWorkLine(ro.id, line.id)}>
+                        <Play size={14} /> Start
+                      </button>
+                      <button style={styles.secondaryButton} onClick={() => pauseWorkLine(ro.id, line.id)}>
+                        <Pause size={14} /> Pause
+                      </button>
+                      <span style={styles.badgeMuted}>Estimate: ₱{line.estimateTotal.toLocaleString()}</span>
+                      <span style={styles.badgeMuted}>Actual: {line.actualHours.toFixed(2)}h</span>
+                      <span style={styles.badgeMuted}>Sessions: {line.sessions.length}</span>
+                      <span style={styles.badgeBlue}>Primary: {getPrimaryTechnicianName(line) || "Unassigned"}</span>
+                      <span style={styles.badgeMuted}>Supporting: {getSupportingTechnicianNames(line).length}</span>
+                    </div>
+
+                    <div style={{ marginTop: 12 }}>
+                      <div style={styles.rowBetween}>
+                        <div style={{ fontWeight: 700 }}>Workline Photos</div>
+                        <button style={styles.secondaryButton} onClick={() => addWorkLinePhoto(ro.id, line.id)}>
+                          <Camera size={14} /> Add Workline Photo
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ color: "#6b7280", marginTop: 10 }}>No workline photos yet.</div>
-                )}
-              </div>
 
-              {line.overrideNote && (
-                <div style={{ marginTop: 8, color: "#92400e" }}>
-                  <strong>Override:</strong> {line.overrideNote}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+                      {line.photos.length > 0 ? (
+                        <div style={{ ...styles.photoGrid, marginTop: 10 }}>
+                          {line.photos.map((photo) => (
+                            <div key={photo.id} style={styles.photoCard}>
+                              <div style={{ ...styles.photoPreviewWrap, marginBottom: 8 }}>
+                                {photo.url ? (
+                                  <img src={photo.url} alt={photo.label || "Workline photo"} style={styles.photoPreview} />
+                                ) : (
+                                  <div style={styles.photoEmpty}><Image size={18} /> No image</div>
+                                )}
+                              </div>
+
+                              <div style={{ display: "grid", gap: 8 }}>
+                                <input
+                                  style={styles.input}
+                                  placeholder="Photo label"
+                                  value={photo.label}
+                                  onChange={(e) =>
+                                    updateWorkLinePhoto(ro.id, line.id, photo.id, "label", e.target.value)
+                                  }
+                                />
+                                <select
+                                  style={styles.input}
+                                  value={photo.stage}
+                                  onChange={(e) =>
+                                    updateWorkLinePhoto(
+                                      ro.id,
+                                      line.id,
+                                      photo.id,
+                                      "stage",
+                                      e.target.value as WorkLinePhoto["stage"],
+                                    )
+                                  }
+                                >
+                                  {["Before", "During", "After"].map((stage) => (
+                                    <option key={stage} value={stage}>
+                                      {stage}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  style={styles.input}
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) =>
+                                    void uploadWorkLinePhotoFile(ro.id, line.id, photo.id, e.target.files?.[0])
+                                  }
+                                />
+                                <input
+                                  style={styles.input}
+                                  placeholder="Photo URL or paste image link"
+                                  value={photo.url.startsWith("data:") ? "" : photo.url}
+                                  onChange={(e) =>
+                                    updateWorkLinePhoto(ro.id, line.id, photo.id, "url", e.target.value)
+                                  }
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ color: "#6b7280", marginTop: 10 }}>No workline photos yet.</div>
+                      )}
+                    </div>
+
+                    {line.overrideNote && (
+                      <div style={{ marginTop: 8, color: "#92400e" }}>
+                        <strong>Override:</strong> {line.overrideNote}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 
@@ -4247,6 +4290,7 @@ export default function App() {
       {parts.length === 0 && <div style={styles.cardBlock}>No parts requests yet.</div>}
 
       {parts.map((part) => {
+        const isCollapsed = !!collapsedParts[part.id];
         const bids = supplierBids.filter((b) => b.partRequestId === part.id);
         const bidForm = bidForms[part.id] || DEFAULT_BID_FORM;
         const internalTotal = round2((part.qty || 0) * (part.unitCost || 0));
@@ -4264,9 +4308,14 @@ export default function App() {
               <div style={styles.wrapRow}>
                 <span style={styles.badgeMuted}>Internal Cost ₱{internalTotal.toLocaleString()}</span>
                 <span style={styles.badgeGood}>Customer Total ₱{customerTotal.toLocaleString()}</span>
+                <button style={styles.secondaryButton} onClick={() => togglePartCollapsed(part.id)}>
+                  {isCollapsed ? "Expand" : "Collapse"}
+                </button>
               </div>
             </div>
 
+            {!isCollapsed && (
+              <React.Fragment>
             <div style={{ ...styles.formGrid, marginTop: 10 }}>
               <input style={styles.input} placeholder="Plate" value={part.plate} onChange={(e) => updatePart(part.id, { plate: e.target.value })} />
               <input style={styles.input} placeholder="Vehicle" value={part.vehicle} onChange={(e) => updatePart(part.id, { vehicle: e.target.value })} />
@@ -4384,6 +4433,8 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            )}
+              </React.Fragment>
             )}
           </div>
         );
@@ -5494,7 +5545,7 @@ export default function App() {
           <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
             <div style={styles.metricMini}>
               <div style={styles.mutedLabel}>Access</div>
-              <strong>Unified staff login</strong>
+              <strong>Unified staff login • polished workflow</strong>
             </div>
           </div>
           <button style={{ ...styles.primaryButton, width: "100%", justifyContent: "center", marginTop: 18 }} onClick={() => setUser(USERS[0])}>
