@@ -559,7 +559,7 @@ const USERS: User[] = [
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 15A — UI Foundation";
+const BUILD_VERSION = "Phase 15B — UI Components + Visual System";
 
 const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Business intelligence, live operations, and management insights." },
@@ -3235,6 +3235,8 @@ export default function App() {
     );
   }, [customerHistory, historySearch]);
 
+  const currentViewMeta = VIEW_TITLES[view] || { title: "Workspace", subtitle: "Manage your workshop operations." };
+
   /* =========================
      VIEWS
   ========================= */
@@ -5488,7 +5490,7 @@ export default function App() {
           <p style={{ marginTop: 0, marginBottom: 10, color: "#475569", fontSize: 15 }}>
             {SHOP_SLOGAN}
           </p>
-          <div style={styles.topbarBadge}>Build Version: {BUILD_VERSION}</div>
+          <div style={styles.statusChip}>Build Version: {BUILD_VERSION}</div>
           <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
             <div style={styles.metricMini}>
               <div style={styles.mutedLabel}>Access</div>
@@ -5511,38 +5513,58 @@ export default function App() {
   return (
     <div style={styles.appWrap}>
       <aside style={styles.sidebar}>
-        <NavButton icon={<Home size={16} />} label="Dashboard" onClick={() => setView("dashboard")} />
-        <NavButton icon={<ClipboardList size={16} />} label="Inspection" onClick={() => setView("inspection")} />
-        <NavButton icon={<FileText size={16} />} label="Approval" onClick={() => setView("approval")} />
-        <NavButton icon={<Car size={16} />} label="RO" onClick={() => setView("ro")} />
-        <NavButton icon={<Package size={16} />} label="Parts" onClick={() => setView("parts")} />
-        <NavButton icon={<Wrench size={16} />} label="Shop" onClick={() => setView("shop")} />
-        <NavButton icon={<Users size={16} />} label="Tech" onClick={() => setView("tech")} />
-        <NavButton icon={<Receipt size={16} />} label="Billing" onClick={() => setView("billing")} />
-        <NavButton icon={<FileText size={16} />} label="Customer Summary" onClick={() => setView("customerSummary")} />
-        <NavButton icon={<History size={16} />} label="History" onClick={() => setView("history")} />
-        <NavButton icon={<RotateCcw size={16} />} label="Back Job" onClick={() => setView("backJob")} />
-        {canViewActivityLogs && <NavButton icon={<ClipboardList size={16} />} label="Activity Logs" onClick={() => setView("activityLogs")} />}
-        <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" onClick={() => setView("purchasing")} />
-        <NavButton icon={<Warehouse size={16} />} label="Inventory" onClick={() => setView("inventory")} />
+        <div style={styles.sidebarBrand}>
+          <div style={styles.sidebarBrandTitle}>{SHOP_NAME}</div>
+          <div style={styles.sidebarBrandSub}>{SHOP_SLOGAN}</div>
+          <div style={{ ...styles.loginEyebrow, marginBottom: 0, marginTop: 10 }}>{BUILD_VERSION}</div>
+        </div>
+
+        <div style={styles.sidebarSection}>
+          <NavButton icon={<Home size={16} />} label="Dashboard" isActive={view === "dashboard"} onClick={() => setView("dashboard")} />
+          <NavButton icon={<ClipboardList size={16} />} label="Inspection" isActive={view === "inspection"} onClick={() => setView("inspection")} />
+          <NavButton icon={<FileText size={16} />} label="Approval" isActive={view === "approval"} onClick={() => setView("approval")} />
+          <NavButton icon={<Car size={16} />} label="RO" isActive={view === "ro"} onClick={() => setView("ro")} />
+          <NavButton icon={<Package size={16} />} label="Parts" isActive={view === "parts"} onClick={() => setView("parts")} />
+          <NavButton icon={<Wrench size={16} />} label="Shop" isActive={view === "shop"} onClick={() => setView("shop")} />
+          <NavButton icon={<Users size={16} />} label="Tech" isActive={view === "tech"} onClick={() => setView("tech")} />
+          <NavButton icon={<Receipt size={16} />} label="Billing" isActive={view === "billing"} onClick={() => setView("billing")} />
+          <NavButton icon={<History size={16} />} label="History" isActive={view === "history"} onClick={() => setView("history")} />
+          <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" isActive={view === "purchasing"} onClick={() => setView("purchasing")} />
+          <NavButton icon={<Warehouse size={16} />} label="Inventory" isActive={view === "inventory"} onClick={() => setView("inventory")} />
+        </div>
+
+        <div style={styles.sidebarFooter}>
+          <div style={styles.mutedLabel}>Signed in as</div>
+          <div style={{ fontWeight: 700, color: "#e5eefb" }}>{user.username}</div>
+          <div style={{ color: "#9fb6d1", fontSize: 12 }}>{user.role}</div>
+        </div>
       </aside>
 
       <main style={styles.main}>
-        {view === "dashboard" && <DashboardView />}
-        {view === "inspection" && <InspectionView />}
-        {view === "approval" && <ApprovalView />}
-        {view === "ro" && <ROView />}
-        {view === "parts" && <PartsView />}
-        {view === "shop" && <ShopView />}
-        {view === "tech" && <TechView />}
-        {view === "billing" && <BillingView />}
-        {view === "customerSummary" && <CustomerSummaryView />}
-        {view === "history" && <HistoryView />}
-        {view === "backJob" && <BackJobView />}
-        {view === "salesReports" && <SalesReportsView />}
-        {view === "activityLogs" && <ActivityLogsView />}
-        {view === "purchasing" && <PurchasingView />}
-        {view === "inventory" && <InventoryView />}
+        <div style={styles.topbar}>
+          <div>
+            <div style={styles.topbarTitle}>{currentViewMeta.title}</div>
+            <div style={styles.topbarSubtitle}>{currentViewMeta.subtitle}</div>
+          </div>
+          <div style={styles.topbarMeta}>
+            <span style={styles.statusChip}>{BUILD_VERSION}</span>
+            <span style={styles.statusChipMuted}>{user.role}</span>
+          </div>
+        </div>
+
+        <div style={styles.pageSurface}>
+          {view === "dashboard" && <DashboardView />}
+          {view === "inspection" && <InspectionView />}
+          {view === "approval" && <ApprovalView />}
+          {view === "ro" && <ROView />}
+          {view === "parts" && <PartsView />}
+          {view === "shop" && <ShopView />}
+          {view === "tech" && <TechView />}
+          {view === "billing" && <BillingView />}
+          {view === "history" && <HistoryView />}
+          {view === "purchasing" && <PurchasingView />}
+          {view === "inventory" && <InventoryView />}
+        </div>
       </main>
     </div>
   );
@@ -5555,17 +5577,17 @@ export default function App() {
 function NavButton({
   icon,
   label,
+  isActive = false,
   onClick,
-  active = false,
 }: {
   icon: React.ReactNode;
   label: string;
+  isActive?: boolean;
   onClick: () => void;
-  active?: boolean;
 }) {
   return (
-    <button style={{ ...styles.navButton, ...(active ? styles.navButtonActive : {}) }} onClick={onClick}>
-      {icon}
+    <button style={isActive ? styles.navButtonActive : styles.navButton} onClick={onClick}>
+      <span style={styles.navIcon}>{icon}</span>
       <span>{label}</span>
     </button>
   );
@@ -5618,49 +5640,48 @@ const styles: Record<string, React.CSSProperties> = {
   appWrap: {
     minHeight: "100vh",
     display: "flex",
-    background: "linear-gradient(180deg, #eff6ff 0%, #f8fafc 18%, #f8fafc 100%)",
+    background: "linear-gradient(180deg, #f3f7fc 0%, #edf3fb 100%)",
     color: "#0f172a",
     fontFamily: "Arial, Helvetica, sans-serif",
   },
   sidebar: {
-    width: 268,
-    borderRight: "1px solid #dbe4f0",
-    padding: 14,
+    width: 278,
+    minWidth: 278,
+    background: "linear-gradient(180deg, #0f172a 0%, #16243a 100%)",
+    color: "#e2e8f0",
+    padding: 18,
     display: "flex",
     flexDirection: "column",
-    gap: 8,
-    background: "linear-gradient(180deg, #0f172a 0%, #111827 100%)",
-    color: "#f8fafc",
+    gap: 14,
+    borderRight: "1px solid rgba(255,255,255,0.06)",
     boxSizing: "border-box",
   },
   sidebarBrand: {
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 16,
-    padding: 14,
-    background: "linear-gradient(180deg, rgba(37,99,235,0.22) 0%, rgba(255,255,255,0.04) 100%)",
-    marginBottom: 6,
+    borderRadius: 18,
+    padding: 16,
+    background: "linear-gradient(135deg, rgba(37,99,235,0.24), rgba(59,130,246,0.1))",
+    border: "1px solid rgba(147,197,253,0.18)",
   },
-  sidebarTitle: {
-    fontSize: 18,
+  sidebarBrandTitle: {
+    fontSize: 20,
     fontWeight: 800,
-    lineHeight: 1.2,
-    color: "#ffffff",
+    lineHeight: 1.15,
+    color: "#f8fafc",
   },
-  sidebarSlogan: {
-    marginTop: 6,
+  sidebarBrandSub: {
     fontSize: 12,
-    lineHeight: 1.5,
     color: "#cbd5e1",
+    marginTop: 6,
   },
   sidebarSection: {
-    marginTop: 4,
-    marginBottom: 2,
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    color: "#94a3b8",
-    padding: "0 4px",
+    display: "grid",
+    gap: 8,
+    flex: 1,
+    alignContent: "start",
+  },
+  sidebarFooter: {
+    borderTop: "1px solid rgba(148,163,184,0.18)",
+    paddingTop: 14,
   },
   main: {
     flex: 1,
@@ -5671,78 +5692,115 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap",
+    gap: 12,
     marginBottom: 16,
-    padding: 18,
-    border: "1px solid #dbe4f0",
-    borderRadius: 18,
-    background: "rgba(255,255,255,0.92)",
-    boxShadow: "0 14px 34px rgba(15, 23, 42, 0.06)",
-    backdropFilter: "blur(8px)",
-  },
-  topbarTitleWrap: {
-    display: "grid",
-    gap: 4,
+    flexWrap: "wrap",
   },
   topbarTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 800,
     color: "#0f172a",
+    letterSpacing: -0.2,
   },
   topbarSubtitle: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#64748b",
+    marginTop: 4,
+    maxWidth: 760,
   },
-  topbarBadge: {
+  topbarMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  statusChip: {
     display: "inline-flex",
     alignItems: "center",
-    justifyContent: "center",
-    padding: "8px 12px",
+    padding: "7px 12px",
     borderRadius: 999,
-    background: "rgba(37,99,235,0.12)",
+    background: "#dbeafe",
     color: "#1d4ed8",
     fontSize: 12,
     fontWeight: 800,
+    border: "1px solid #bfdbfe",
+  },
+  statusChipMuted: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "7px 12px",
+    borderRadius: 999,
+    background: "#ffffff",
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: 700,
+    border: "1px solid #dbe4f0",
   },
   pageSurface: {
-    border: "1px solid #e2e8f0",
-    borderRadius: 22,
-    background: "rgba(255,255,255,0.94)",
-    boxShadow: "0 20px 42px rgba(15, 23, 42, 0.06)",
+    borderRadius: 24,
     padding: 18,
+    background: "rgba(255,255,255,0.8)",
+    border: "1px solid #dde7f2",
+    boxShadow: "0 16px 36px rgba(15, 23, 42, 0.06)",
+    backdropFilter: "blur(8px)",
   },
   navButton: {
     display: "flex",
     alignItems: "center",
     gap: 10,
     width: "100%",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: 12,
-    background: "rgba(255,255,255,0.04)",
-    color: "#e2e8f0",
+    border: "1px solid rgba(148,163,184,0.12)",
+    borderRadius: 14,
+    background: "rgba(255,255,255,0.02)",
+    color: "#dbe4f0",
     padding: "11px 12px",
     cursor: "pointer",
     textAlign: "left",
-    fontWeight: 600,
+    fontWeight: 700,
     transition: "all 0.2s ease",
   },
   navButtonActive: {
-    background: "linear-gradient(90deg, rgba(37,99,235,0.95) 0%, rgba(29,78,216,0.95) 100%)",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    border: "1px solid rgba(147,197,253,0.35)",
+    borderRadius: 14,
+    background: "linear-gradient(135deg, rgba(37,99,235,0.26), rgba(96,165,250,0.16))",
     color: "#ffffff",
-    border: "1px solid rgba(96,165,250,0.7)",
-    boxShadow: "0 8px 20px rgba(37, 99, 235, 0.28)",
+    padding: "11px 12px",
+    cursor: "pointer",
+    textAlign: "left",
+    fontWeight: 800,
+    boxShadow: "0 10px 20px rgba(30,64,175,0.18)",
+  },
+  navIcon: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 18,
+    height: 18,
   },
   heading: {
     marginTop: 0,
     marginBottom: 16,
     fontSize: 24,
+    fontWeight: 800,
+    letterSpacing: -0.15,
+    color: "#0f172a",
+  },
+  subtitle: {
+    color: "#64748b",
+    fontSize: 14,
+    lineHeight: 1.5,
   },
   title: {
     marginTop: 0,
     marginBottom: 12,
-    fontSize: 32,
-    lineHeight: 1.15,
+    fontSize: 30,
+    fontWeight: 800,
+    lineHeight: 1.1,
+    color: "#0f172a",
   },
   statsGrid: {
     display: "grid",
@@ -5750,24 +5808,26 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
   },
   metricCard: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    background: "#fff",
+    border: "1px solid #dbe4f0",
+    borderRadius: 18,
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
     padding: 16,
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
   },
   cardBlock: {
     marginTop: 12,
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    background: "#fff",
-    padding: 14,
+    border: "1px solid #dbe4f0",
+    borderRadius: 18,
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+    padding: 16,
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
   },
   innerBlock: {
     marginTop: 10,
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
-    background: "#f9fafb",
-    padding: 12,
+    border: "1px solid #e3ebf5",
+    borderRadius: 14,
+    background: "#f8fbff",
+    padding: 14,
   },
   rowBetween: {
     display: "flex",
@@ -5798,13 +5858,13 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
   },
   metricMini: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
-    background: "#f9fafb",
-    padding: 10,
+    border: "1px solid #dbe4f0",
+    borderRadius: 14,
+    background: "#f8fbff",
+    padding: 12,
   },
   mutedLabel: {
-    color: "#6b7280",
+    color: "#64748b",
     fontSize: 12,
     marginBottom: 4,
   },
@@ -5812,63 +5872,70 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: 8,
     alignItems: "center",
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
+    border: "1px solid #dbe4f0",
+    borderRadius: 12,
     padding: 10,
-    background: "#fff",
-  },
-  input: {
-    border: "1px solid #d1d5db",
-    borderRadius: 8,
-    padding: "10px 12px",
-    background: "#fff",
-    minWidth: 140,
+    background: "#ffffff",
     boxSizing: "border-box",
   },
+  input: {
+    border: "1px solid #cfd9e5",
+    borderRadius: 12,
+    padding: "11px 12px",
+    background: "#ffffff",
+    minWidth: 140,
+    boxSizing: "border-box",
+    color: "#0f172a",
+    boxShadow: "inset 0 1px 2px rgba(15, 23, 42, 0.03)",
+  },
   primaryButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
     border: "none",
-    borderRadius: 10,
-    padding: "10px 14px",
-    background: "#2563eb",
-    color: "#fff",
+    borderRadius: 12,
+    padding: "11px 15px",
+    background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+    color: "#ffffff",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 800,
+    boxShadow: "0 10px 20px rgba(37,99,235,0.18)",
   },
   secondaryButton: {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    border: "1px solid #d1d5db",
-    borderRadius: 10,
-    padding: "10px 14px",
-    background: "#fff",
-    color: "#111827",
+    border: "1px solid #d1dbe8",
+    borderRadius: 12,
+    padding: "11px 14px",
+    background: "#ffffff",
+    color: "#0f172a",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 700,
   },
   goodButton: {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
     border: "none",
-    borderRadius: 10,
-    padding: "10px 14px",
-    background: "#16a34a",
-    color: "#fff",
+    borderRadius: 12,
+    padding: "11px 14px",
+    background: "linear-gradient(135deg, #16a34a, #15803d)",
+    color: "#ffffff",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 800,
   },
   dangerButton: {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
     border: "none",
-    borderRadius: 10,
-    padding: "10px 14px",
-    background: "#dc2626",
-    color: "#fff",
+    borderRadius: 12,
+    padding: "11px 14px",
+    background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+    color: "#ffffff",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 800,
   },
   summaryRow: {
     display: "flex",
@@ -5876,93 +5943,95 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: "wrap",
     alignItems: "center",
     fontSize: 14,
+    color: "#334155",
   },
   logRow: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
-    padding: 10,
-    background: "#fff",
+    border: "1px solid #e3ebf5",
+    borderRadius: 14,
+    padding: 12,
+    background: "#ffffff",
   },
   badgeDark: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
-    background: "#111827",
-    color: "#fff",
+    background: "#0f172a",
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   badgeMuted: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
-    background: "#e5e7eb",
-    color: "#111827",
+    background: "#e2e8f0",
+    color: "#334155",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   badgeWarn: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
     background: "#f59e0b",
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   badgeGood: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
     background: "#16a34a",
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   badgeBlue: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
     background: "#2563eb",
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   badgePurple: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
     background: "#7c3aed",
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   badgeDanger: {
     display: "inline-flex",
     alignItems: "center",
-    padding: "6px 10px",
+    padding: "7px 11px",
     borderRadius: 999,
     background: "#dc2626",
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   shopGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
     gap: 12,
   },
   shopCard: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    background: "#fff",
-    padding: 14,
+    border: "1px solid #dbe4f0",
+    borderRadius: 18,
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+    padding: 16,
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
   },
   shopMiniRow: {
     display: "flex",
@@ -5970,25 +6039,26 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     alignItems: "center",
     fontSize: 13,
+    color: "#334155",
   },
   photoGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: 12,
   },
   photoCard: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    background: "#fff",
-    padding: 10,
+    border: "1px solid #dbe4f0",
+    borderRadius: 16,
+    background: "#ffffff",
+    padding: 12,
   },
   photoPreviewWrap: {
     width: "100%",
     aspectRatio: "4 / 3",
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: "hidden",
-    background: "#f3f4f6",
-    border: "1px solid #e5e7eb",
+    background: "#eef2f7",
+    border: "1px solid #dbe4f0",
   },
   photoPreview: {
     width: "100%",
@@ -6003,7 +6073,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    color: "#6b7280",
+    color: "#64748b",
     fontSize: 13,
   },
   loginWrap: {
