@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home,
   ClipboardList,
@@ -35,6 +35,7 @@ import {
 
 type ViewKey =
   | "dashboard"
+  | "vehicleIntake"
   | "inspection"
   | "approval"
   | "ro"
@@ -48,15 +49,54 @@ type ViewKey =
   | "activityLogs"
   | "salesReports"
   | "purchasing"
-  | "inventory";
+  | "inventory"
+  | "employees";
 
-type UserRole = "Admin" | "Technician" | "Service Advisor" | "Manager" | "Assistant Manager";
+type EmployeeRole =
+  | "Admin"
+  | "Management"
+  | "Service Advisor"
+  | "Office Staff"
+  | "Technician"
+  | "Mechanic"
+  | "Reception";
 
-type User = {
+type UserRole = EmployeeRole | "Manager" | "Assistant Manager";
+
+type EmployeeRecord = {
+  id: string;
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  role: UserRole;
+  department: string;
+  phone: string;
   username: string;
   password: string;
-  role: UserRole;
+  active: boolean;
+  mustChangePassword?: boolean;
+  allowedViews?: ViewKey[];
+  createdAt: number;
 };
+
+type AttendanceStatus = "Present" | "Late" | "Absent" | "Half Day" | "On Leave";
+
+type AttendanceRecord = {
+  id: string;
+  employeeId: string;
+  date: string;
+  status: AttendanceStatus;
+  checkInTime?: string;
+  checkOutTime?: string;
+  note: string;
+  encodedBy: string;
+};
+
+type User = EmployeeRecord;
+
+type FuelType = "Gasoline" | "Diesel" | "Hybrid" | "Electric" | "LPG" | "Other";
+type TransmissionType = "MT" | "AT" | "CVT" | "DCT" | "Other";
 
 type Priority = "Low" | "Normal" | "High" | "Urgent";
 type ROStatus =
@@ -132,6 +172,38 @@ type ArrivalCheckItem = {
 };
 
 type ArrivalCheckMap = Record<ArrivalCheckKey, ArrivalCheckItem>;
+
+type TireCondition = "Good" | "Uneven Wear" | "Worn" | "Bald";
+type TirePosition = "frontLeft" | "frontRight" | "rearLeft" | "rearRight";
+
+type TireInspectionItem = {
+  condition: TireCondition;
+  treadDepthMm: string;
+  unsafe: boolean;
+};
+
+type TireInspectionMap = Record<TirePosition, TireInspectionItem>;
+
+type UnderHoodInspectionKey =
+  | "engineOil"
+  | "coolant"
+  | "brakeFluid"
+  | "powerSteeringFluid"
+  | "battery"
+  | "belts"
+  | "hoses"
+  | "airFilter"
+  | "cabinFilter"
+  | "fluidLeaks";
+
+type UnderHoodInspectionStatus = "OK" | "Needs Attention" | "Urgent";
+
+type UnderHoodInspectionItem = {
+  status: UnderHoodInspectionStatus;
+  note: string;
+};
+
+type UnderHoodInspectionMap = Record<UnderHoodInspectionKey, UnderHoodInspectionItem>;
 
 type SmsGatewaySettings = {
   enabled: boolean;
@@ -255,8 +327,15 @@ type RepairOrder = {
   vehicleMake: string;
   vehicleModel: string;
   vehicleYear: string;
+  fuelType: FuelType | "";
+  transmissionType: TransmissionType | "";
   customer: string;
+  customerFirstName: string;
+  customerLastName: string;
   customerPhone: string;
+  customerEmail: string;
+  municipality: string;
+  region: string;
   odometer: string;
   bay: string;
   priority: Priority;
@@ -282,6 +361,8 @@ type RepairOrder = {
   initialExteriorPhotos: InspectionPhoto[];
   takeNotes: InspectionTakeNote[];
   arrivalChecks: ArrivalCheckMap;
+  tireInspection: TireInspectionMap;
+  underHoodInspection: UnderHoodInspectionMap;
   serviceAdvisorNotes: string;
   softLocked: boolean;
   lockOverrideReason: string;
@@ -382,7 +463,8 @@ type InspectionIssueKey =
   | "electrical"
   | "aircon"
   | "steering"
-  | "tires";
+  | "tires"
+  | "alignment";
 
 type InspectionSelection = Record<InspectionIssueKey, boolean>;
 
@@ -394,14 +476,34 @@ type InspectionIssueDefinition = {
   defaultWorkLineLabel: string;
 };
 
+type VehicleCatalogModel = {
+  name: string;
+  startYear?: number;
+  endYear?: number;
+  aliases?: string[];
+};
+
+type VehicleCatalogEntry = {
+  make: string;
+  models: VehicleCatalogModel[];
+  aliases?: string[];
+};
+
 type InspectionForm = {
   plate: string;
   vehicle: string;
   vehicleMake: string;
   vehicleModel: string;
   vehicleYear: string;
+  fuelType: FuelType | "";
+  transmissionType: TransmissionType | "";
   customer: string;
+  customerFirstName: string;
+  customerLastName: string;
   customerPhone: string;
+  customerEmail: string;
+  municipality: string;
+  region: string;
   odometer: string;
   bay: string;
   priority: Priority;
@@ -413,9 +515,15 @@ type InspectionForm = {
   initialExteriorPhotos: InspectionPhoto[];
   takeNotes: InspectionTakeNote[];
   arrivalChecks: ArrivalCheckMap;
+  tireInspection: TireInspectionMap;
+  underHoodInspection: UnderHoodInspectionMap;
   customerVisibleFindings: string;
   recommendationsSummary: string;
   serviceAdvisorNotes: string;
+  customerType: "Person" | "Company";
+  companyName: string;
+  municipalityGroup: "Ilocos Sur" | "Abra" | "";
+  customerMunicipality: string;
 };
 
 type PaymentForm = {
@@ -454,6 +562,22 @@ type InventoryForm = {
   reorderLevel: string;
   avgCost: string;
   location: string;
+};
+
+type EmployeeForm = {
+  id?: string;
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  role: UserRole;
+  department: string;
+  phone: string;
+  username: string;
+  password: string;
+  active: boolean;
+  mustChangePassword: boolean;
+  allowedViews?: ViewKey[];
 };
 
 type CustomerHistoryRecord = {
@@ -552,18 +676,125 @@ type SalesForm = {
 ========================= */
 
 const USERS: User[] = [
-  { username: "admin", password: "admin123", role: "Admin" },
-  { username: "manager", password: "manager123", role: "Manager" },
-  { username: "assistant", password: "assistant123", role: "Assistant Manager" },
+  {
+    id: "emp-admin",
+    employeeCode: "EMP-001",
+    firstName: "System",
+    lastName: "Admin",
+    displayName: "System Admin",
+    role: "Admin",
+    department: "Management",
+    phone: "",
+    username: "admin",
+    password: "admin123",
+    active: true,
+    mustChangePassword: false,
+    allowedViews: undefined,
+    createdAt: Date.now(),
+  },
+  {
+    id: "emp-manager",
+    employeeCode: "EMP-002",
+    firstName: "Workshop",
+    lastName: "Manager",
+    displayName: "Workshop Manager",
+    role: "Management",
+    department: "Management",
+    phone: "",
+    username: "manager",
+    password: "manager123",
+    active: true,
+    mustChangePassword: false,
+    allowedViews: undefined,
+    createdAt: Date.now(),
+  },
+  {
+    id: "emp-assistant",
+    employeeCode: "EMP-003",
+    firstName: "Assistant",
+    lastName: "Manager",
+    displayName: "Assistant Manager",
+    role: "Management",
+    department: "Management",
+    phone: "",
+    username: "assistant",
+    password: "assistant123",
+    active: true,
+    mustChangePassword: false,
+    allowedViews: undefined,
+    createdAt: Date.now(),
+  },
 ];
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 15C — UX + Workflow Polish";
+const BUILD_VERSION = "Phase 19E — Under-Hood Auto Recommendations + Note Chips";
+
+const APP_STORAGE_KEYS = {
+  employees: APP_STORAGE_KEYS.employees,
+  attendanceRecords: "phase18a_attendance_records",
+  technicians: APP_STORAGE_KEYS.technicians,
+  suppliers: APP_STORAGE_KEYS.suppliers,
+  bids: APP_STORAGE_KEYS.bids,
+  inventory: APP_STORAGE_KEYS.inventory,
+  ros: APP_STORAGE_KEYS.ros,
+  parts: APP_STORAGE_KEYS.parts,
+  backJobs: APP_STORAGE_KEYS.backJobs,
+  activityLogs: APP_STORAGE_KEYS.activityLogs,
+  salesEntries: APP_STORAGE_KEYS.salesEntries,
+  smsGateway: APP_STORAGE_KEYS.smsGateway,
+  vehicleCatalog: APP_STORAGE_KEYS.vehicleCatalog,
+  vehicleCatalogUrl: APP_STORAGE_KEYS.vehicleCatalogUrl,
+} as const;
+
+const MODULE_BEHAVIOR_RULES: Record<ViewKey, { allowCreate: boolean; allowInlineEdit: boolean; supportsLookup: boolean; requiresActiveUser: boolean }> = {
+  dashboard: { allowCreate: false, allowInlineEdit: false, supportsLookup: false, requiresActiveUser: true },
+  vehicleIntake: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  inspection: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  approval: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  ro: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  parts: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  shop: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  tech: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  billing: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  customerSummary: { allowCreate: false, allowInlineEdit: false, supportsLookup: true, requiresActiveUser: true },
+  history: { allowCreate: false, allowInlineEdit: false, supportsLookup: true, requiresActiveUser: true },
+  backJob: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  activityLogs: { allowCreate: false, allowInlineEdit: false, supportsLookup: true, requiresActiveUser: true },
+  salesReports: { allowCreate: true, allowInlineEdit: true, supportsLookup: false, requiresActiveUser: true },
+  purchasing: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  inventory: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+  employees: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
+};
+
+const VIEW_MASTER_DATA_GROUPS: Record<ViewKey, string[]> = {
+  dashboard: ["Repair Orders", "Payments", "Manager Alerts"],
+  vehicleIntake: ["Plate History", "Customer History", "Vehicle Catalog"],
+  inspection: ["Intake Draft", "Service Matrix", "Inspection Photos"],
+  approval: ["Customer Decisions", "Estimate Totals"],
+  ro: ["Repair Orders", "Work Lines", "Assignments"],
+  parts: ["Part Requests", "Supplier Bids", "Inventory Allocations"],
+  shop: ["Bay Status", "Live Jobs"],
+  tech: ["Technician Load", "Assignments", "Productivity"],
+  billing: ["Invoices", "Payments", "Release Gates"],
+  customerSummary: ["Customer Summary", "Attachments"],
+  history: ["Plate History", "Customer History", "Return Jobs"],
+  backJob: ["Back Jobs", "Root Cause Tracking"],
+  activityLogs: ["Audit Trail"],
+  salesReports: ["Daily Sales", "Monthly Projection"],
+  purchasing: ["Suppliers", "Bids"],
+  inventory: ["Inventory", "Restock Alerts"],
+  employees: ["Employees", "Attendance", "Permissions"],
+};
+
+const VIEW_LABELS: Record<ViewKey, string> = Object.fromEntries(
+  Object.entries(VIEW_TITLES).map(([key, value]) => [key, value.title]),
+) as Record<ViewKey, string>;
 
 const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Business intelligence, live operations, and management insights." },
-  inspection: { title: "Inspection", subtitle: "Structured intake, findings, and arrival documentation." },
+  vehicleIntake: { title: "Vehicle Intake", subtitle: "Required vehicle details first, customer details can be completed later." },
+  inspection: { title: "Inspection", subtitle: "Structured inspection, photos, take notes, and arrival documentation." },
   approval: { title: "Approval", subtitle: "Customer decisions, estimates, and work authorization." },
   ro: { title: "Repair Orders", subtitle: "Master job records, work lines, assignments, and status control." },
   parts: { title: "Parts", subtitle: "Request, quote, receive, and price parts accurately." },
@@ -577,6 +808,7 @@ const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
   activityLogs: { title: "Activity Logs", subtitle: "Audit trail of changes across the entire system." },
   purchasing: { title: "Purchasing", subtitle: "Suppliers, sourcing, and purchasing coordination." },
   inventory: { title: "Inventory", subtitle: "Stock, reorder monitoring, and inventory visibility." },
+  employees: { title: "Employees", subtitle: "Employee master, login permissions, and daily attendance board." },
 };
 
 const DEFAULT_TECHNICIANS: TechnicianProfile[] = [
@@ -597,14 +829,176 @@ const DEFAULT_INVENTORY: InventoryItem[] = [
 ];
 
 const INSPECTION_ISSUES: InspectionIssueDefinition[] = [
-  { key: "brakes", label: "Brake Concern", category: "Brakes", defaultHours: 2.5, defaultWorkLineLabel: "Brake Inspection and Repair" },
-  { key: "suspension", label: "Suspension Noise / Play", category: "Suspension", defaultHours: 3, defaultWorkLineLabel: "Suspension Inspection and Repair" },
-  { key: "engine", label: "Engine Performance Issue", category: "Engine", defaultHours: 2, defaultWorkLineLabel: "Engine Diagnosis and Repair" },
-  { key: "electrical", label: "Electrical Issue", category: "Electrical", defaultHours: 1.5, defaultWorkLineLabel: "Electrical System Check" },
-  { key: "aircon", label: "Aircon Concern", category: "Aircon", defaultHours: 2, defaultWorkLineLabel: "Aircon Inspection and Service" },
-  { key: "steering", label: "Steering Concern", category: "Steering", defaultHours: 2.5, defaultWorkLineLabel: "Steering System Inspection" },
-  { key: "tires", label: "Tire / Alignment Concern", category: "Tires", defaultHours: 1.5, defaultWorkLineLabel: "Tire and Alignment Check" },
+  { key: "brakes", label: "Brakes", category: "Brakes", defaultHours: 2.5, defaultWorkLineLabel: "Brake Inspection and Repair" },
+  { key: "suspension", label: "Suspension", category: "Suspension", defaultHours: 3, defaultWorkLineLabel: "Suspension Inspection and Repair" },
+  { key: "engine", label: "Engine", category: "Engine", defaultHours: 2, defaultWorkLineLabel: "Engine Diagnosis and Repair" },
+  { key: "electrical", label: "Electrical", category: "Electrical", defaultHours: 1.5, defaultWorkLineLabel: "Electrical System Check" },
+  { key: "aircon", label: "Aircon", category: "Aircon", defaultHours: 2, defaultWorkLineLabel: "Aircon Inspection and Service" },
+  { key: "steering", label: "Steering", category: "Steering", defaultHours: 2.5, defaultWorkLineLabel: "Steering System Inspection" },
+  { key: "tires", label: "Tires", category: "Tires", defaultHours: 1.5, defaultWorkLineLabel: "Tire Service and Inspection" },
+  { key: "alignment", label: "Alignment", category: "Alignment", defaultHours: 1.5, defaultWorkLineLabel: "Wheel Alignment Check and Adjustment" },
 ];
+
+const INSPECTION_ISSUE_SHORT_LABELS: Record<InspectionIssueKey, string> = {
+  brakes: "Brakes",
+  suspension: "Suspension",
+  engine: "Engine",
+  electrical: "Electrical",
+  aircon: "Aircon",
+  steering: "Steering",
+  tires: "Tires",
+  alignment: "Alignment",
+};
+
+const INSPECTION_ISSUE_DESCRIPTIONS: Record<InspectionIssueKey, string> = {
+  brakes: "Brake discs, pads, calipers, hydraulics, and ABS-related diagnostics.",
+  suspension: "Springs, shocks, struts, control arms, and ride-control concerns.",
+  engine: "Engine performance, mechanical condition, and smooth power delivery.",
+  electrical: "Wiring, relays, switches, sensors, and non-charging electrical faults.",
+  aircon: "Air-conditioning cooling performance, airflow, and cabin comfort concerns.",
+  steering: "Steering response, handling, rack, tie rods, and steering-related checks.",
+  tires: "Tire wear, tread depth, rotation, pressure, and tire service needs.",
+  alignment: "Wheel alignment symptoms, pull, off-center steering wheel, and uneven wear patterns.",
+};
+
+
+type ServiceRecommendationRow = {
+  intervalKm: number;
+  fullInspectionLabel: string;
+  items: {
+    engineOil: string;
+    oilFilter: string;
+    airFilter: string;
+    fuelFilter: string;
+    cabinFilter: string;
+    sparkPlugs: string;
+    atfGearOil: string;
+    brakeFluid: string;
+    brakeService: string;
+    coolant: string;
+    timingBelt: string;
+    egrIntake: string;
+    throttleInjector: string;
+    tiresAlignment: string;
+  };
+};
+
+const SERVICE_RECOMMENDATION_ROWS: ServiceRecommendationRow[] = [
+  { intervalKm: 10000, fullInspectionLabel: "Basic", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Inspect", fuelFilter: "—", cabinFilter: "Inspect", sparkPlugs: "—", atfGearOil: "—", brakeFluid: "—", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "—", throttleInjector: "—", tiresAlignment: "Rotate" } },
+  { intervalKm: 20000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Clean", fuelFilter: "Replace", cabinFilter: "Inspect", sparkPlugs: "—", atfGearOil: "—", brakeFluid: "—", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "Inspect", throttleInjector: "Inspect", tiresAlignment: "Align" } },
+  { intervalKm: 30000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "—", atfGearOil: "—", brakeFluid: "Flush", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "Inspect", throttleInjector: "Inspect", tiresAlignment: "Service" } },
+  { intervalKm: 40000, fullInspectionLabel: "Full", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Replace", atfGearOil: "MT Change", brakeFluid: "Check", brakeService: "Clean / Adjust", coolant: "Replace", timingBelt: "Inspect", egrIntake: "Inspect", throttleInjector: "Inspect", tiresAlignment: "Service" } },
+  { intervalKm: 50000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Inspect", atfGearOil: "—", brakeFluid: "—", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "Clean", throttleInjector: "Clean", tiresAlignment: "Service" } },
+  { intervalKm: 60000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Replace", atfGearOil: "AT / MT Flush", brakeFluid: "Check", brakeService: "Clean / Adjust", coolant: "Check", timingBelt: "Inspect", egrIntake: "Clean", throttleInjector: "Clean", tiresAlignment: "Service" } },
+  { intervalKm: 70000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Inspect", atfGearOil: "AT Flush", brakeFluid: "—", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "Inspect", throttleInjector: "Inspect", tiresAlignment: "Service" } },
+  { intervalKm: 80000, fullInspectionLabel: "Full", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Replace", atfGearOil: "Change", brakeFluid: "Replace", brakeService: "Clean / Adjust", coolant: "Replace", timingBelt: "Replace", egrIntake: "Clean", throttleInjector: "Clean", tiresAlignment: "Service" } },
+  { intervalKm: 90000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Inspect", atfGearOil: "—", brakeFluid: "—", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "Inspect", throttleInjector: "Inspect", tiresAlignment: "Service" } },
+  { intervalKm: 100000, fullInspectionLabel: "Major", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Replace", atfGearOil: "Change", brakeFluid: "Replace", brakeService: "Clean / Adjust", coolant: "Replace", timingBelt: "Replace", egrIntake: "Clean", throttleInjector: "Clean", tiresAlignment: "Service" } },
+  { intervalKm: 110000, fullInspectionLabel: "Standard", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Inspect", atfGearOil: "—", brakeFluid: "—", brakeService: "Clean / Adjust", coolant: "—", timingBelt: "—", egrIntake: "Inspect", throttleInjector: "Inspect", tiresAlignment: "Service" } },
+  { intervalKm: 120000, fullInspectionLabel: "Overhaul", items: { engineOil: "Change", oilFilter: "Replace", airFilter: "Replace", fuelFilter: "Replace", cabinFilter: "Replace", sparkPlugs: "Replace", atfGearOil: "Change", brakeFluid: "Replace", brakeService: "Clean / Adjust", coolant: "Replace", timingBelt: "Replace", egrIntake: "Clean", throttleInjector: "Clean", tiresAlignment: "Service" } },
+];
+
+function parseOdometerKm(value: string): number {
+  const numeric = Number(String(value || "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function getServiceRecommendationForOdometer(odometer: string) {
+  const odometerKm = parseOdometerKm(odometer);
+  if (!odometerKm) {
+    return {
+      odometerKm: 0,
+      targetIntervalKm: 10000,
+      kmToNextInterval: 10000,
+      isOverdue: false,
+      row: SERVICE_RECOMMENDATION_ROWS[0],
+    };
+  }
+  const roundedTarget = Math.min(120000, Math.max(10000, Math.ceil(odometerKm / 10000) * 10000));
+  const row = SERVICE_RECOMMENDATION_ROWS.find((item) => item.intervalKm === roundedTarget) || SERVICE_RECOMMENDATION_ROWS[SERVICE_RECOMMENDATION_ROWS.length - 1];
+  const kmToNextInterval = Math.max(0, roundedTarget - odometerKm);
+  const isOverdue = odometerKm > roundedTarget;
+  return { odometerKm, targetIntervalKm: roundedTarget, kmToNextInterval, isOverdue, row };
+}
+
+const SERVICE_ITEM_LABELS: Record<keyof ServiceRecommendationRow["items"], string> = {
+  engineOil: "Engine Oil",
+  oilFilter: "Oil Filter",
+  airFilter: "Air Filter",
+  fuelFilter: "Fuel Filter",
+  cabinFilter: "Cabin Filter",
+  sparkPlugs: "Spark Plugs",
+  atfGearOil: "ATF / Gear Oil",
+  brakeFluid: "Brake Fluid",
+  brakeService: "Brake Service",
+  coolant: "Coolant",
+  timingBelt: "Timing Belt",
+  egrIntake: "EGR + Intake",
+  throttleInjector: "Throttle / Injector",
+  tiresAlignment: "Tires / Alignment",
+};
+
+function mapServiceItemsToQuickCategories(items: ServiceRecommendationRow["items"]): InspectionIssueKey[] {
+  const mapped = new Set<InspectionIssueKey>();
+  const active = Object.entries(items).filter(([, value]) => value !== "—");
+  active.forEach(([key]) => {
+    if (["engineOil", "oilFilter", "airFilter", "fuelFilter", "sparkPlugs", "egrIntake", "throttleInjector", "coolant"].includes(key)) mapped.add("engine");
+    if (["brakeFluid", "brakeService"].includes(key)) mapped.add("brakes");
+    if (["tiresAlignment"].includes(key)) {
+      mapped.add("tires");
+      mapped.add("alignment");
+    }
+    if (key === "atfGearOil") mapped.add("engine");
+  });
+  return Array.from(mapped);
+}
+
+
+
+const DEFAULT_PH_VEHICLE_CATALOG: VehicleCatalogEntry[] = [
+  { make: "Toyota", models: [{ name: "Corolla", startYear: 1995, endYear: 2013 }, { name: "Corolla Altis", startYear: 2001 }, { name: "Vios", startYear: 2003 }, { name: "Wigo", startYear: 2014 }, { name: "Yaris", startYear: 2007 }, { name: "Yaris Cross", startYear: 2023 }, { name: "Raize", startYear: 2022 }, { name: "Avanza", startYear: 2003 }, { name: "Veloz", startYear: 2022 }, { name: "Rush", startYear: 2018 }, { name: "Revo", startYear: 1998, endYear: 2005 }, { name: "Innova", startYear: 2005 }, { name: "Fortuner", startYear: 2005 }, { name: "Hilux", startYear: 1995 }, { name: "Hiace", startYear: 1995 }, { name: "LiteAce", startYear: 1995, endYear: 2002 }, { name: "Tamaraw", startYear: 1995, endYear: 2004 }, { name: "Land Cruiser", startYear: 1995 }, { name: "Land Cruiser Prado", startYear: 1997 }, { name: "RAV4", startYear: 1995 }, { name: "Camry", startYear: 1995 }, { name: "Previa", startYear: 1995, endYear: 2005 }, { name: "Alphard", startYear: 2008 }, { name: "Coaster", startYear: 1995 }, { name: "86", startYear: 2012 }] },
+  { make: "Mitsubishi", models: [{ name: "Lancer", startYear: 1995, endYear: 2017 }, { name: "Lancer EX", startYear: 2008, endYear: 2017 }, { name: "Mirage", startYear: 2012 }, { name: "Mirage G4", startYear: 2013 }, { name: "Xpander", startYear: 2018 }, { name: "Xpander Cross", startYear: 2020 }, { name: "Adventure", startYear: 1997, endYear: 2017 }, { name: "Montero Sport", startYear: 2008 }, { name: "Pajero", startYear: 1995, endYear: 2021 }, { name: "Strada", startYear: 1995 }, { name: "L200", startYear: 1995, endYear: 2006 }, { name: "L300", startYear: 1995 }, { name: "Galant", startYear: 1995, endYear: 2012 }, { name: "Fuzion", startYear: 2007, endYear: 2016 }, { name: "Outlander", startYear: 2003 }, { name: "ASX", startYear: 2010 }, { name: "Xforce", startYear: 2024 }, { name: "Eclipse Cross", startYear: 2018 }], aliases: ["Mitsu"] },
+  { make: "Nissan", models: [{ name: "Sentra", startYear: 1995, endYear: 2019 }, { name: "Sylphy", startYear: 2013 }, { name: "Almera", startYear: 2011 }, { name: "Cefiro", startYear: 1995, endYear: 2003 }, { name: "Teana", startYear: 2004, endYear: 2013 }, { name: "Patrol", startYear: 1995 }, { name: "X-Trail", startYear: 2003 }, { name: "Terra", startYear: 2018 }, { name: "Navara", startYear: 2005 }, { name: "Frontier", startYear: 1998, endYear: 2015 }, { name: "Urvan", startYear: 1995 }, { name: "Serena", startYear: 1995 }, { name: "Livina", startYear: 2022 }, { name: "Kicks", startYear: 2022 }, { name: "Juke", startYear: 2014, endYear: 2017 }] },
+  { make: "Honda", models: [{ name: "Civic", startYear: 1995 }, { name: "City", startYear: 1996 }, { name: "Accord", startYear: 1995 }, { name: "CR-V", startYear: 1997 }, { name: "HR-V", startYear: 1999 }, { name: "BR-V", startYear: 2016 }, { name: "Mobilio", startYear: 2015, endYear: 2021 }, { name: "Jazz", startYear: 2004, endYear: 2020 }, { name: "City Hatchback", startYear: 2021 }, { name: "Odyssey", startYear: 1995, endYear: 2013 }, { name: "Pilot", startYear: 2003 }, { name: "Prelude", startYear: 1995, endYear: 2001 }, { name: "Stream", startYear: 2001, endYear: 2010 }] },
+  { make: "Ford", models: [{ name: "Lynx", startYear: 1999, endYear: 2012 }, { name: "Laser", startYear: 1995, endYear: 2001 }, { name: "Focus", startYear: 2005, endYear: 2018 }, { name: "Fiesta", startYear: 2010, endYear: 2020 }, { name: "EcoSport", startYear: 2014, endYear: 2022 }, { name: "Territory", startYear: 2020 }, { name: "Escape", startYear: 2001, endYear: 2012 }, { name: "Everest", startYear: 2003 }, { name: "Ranger", startYear: 1998 }, { name: "Explorer", startYear: 1995 }, { name: "Expedition", startYear: 1997 }, { name: "Mustang", startYear: 2016 }] },
+  { make: "Isuzu", models: [{ name: "D-Max", startYear: 2003 }, { name: "Fuego", startYear: 1995, endYear: 2005 }, { name: "Crosswind", startYear: 2001, endYear: 2017 }, { name: "mu-X", startYear: 2014 }, { name: "Alterra", startYear: 2005, endYear: 2012 }, { name: "Trooper", startYear: 1995, endYear: 2005 }, { name: "Traviz", startYear: 2020 }, { name: "N-Series", startYear: 1995 }] },
+  { make: "Suzuki", models: [{ name: "Esteem", startYear: 1995, endYear: 2003 }, { name: "Celerio", startYear: 2009 }, { name: "Alto", startYear: 2000, endYear: 2014 }, { name: "S-Presso", startYear: 2020 }, { name: "Swift", startYear: 2005 }, { name: "Dzire", startYear: 2008 }, { name: "Ertiga", startYear: 2012 }, { name: "XL7", startYear: 2020 }, { name: "Vitara", startYear: 1995, endYear: 2005 }, { name: "Grand Vitara", startYear: 1998, endYear: 2022 }, { name: "Jimny", startYear: 1998 }, { name: "APV", startYear: 2005 }, { name: "Carry", startYear: 1995 }] },
+  { make: "Hyundai", models: [{ name: "Accent", startYear: 1995 }, { name: "Elantra", startYear: 1995 }, { name: "Sonata", startYear: 1995 }, { name: "Getz", startYear: 2004, endYear: 2011 }, { name: "Eon", startYear: 2012, endYear: 2018 }, { name: "Reina", startYear: 2019, endYear: 2022 }, { name: "Tucson", startYear: 2005 }, { name: "Santa Fe", startYear: 2001 }, { name: "Starex", startYear: 1998, endYear: 2021 }, { name: "Staria", startYear: 2021 }, { name: "Creta", startYear: 2022 }, { name: "Custin", startYear: 2023 }, { name: "H-100", startYear: 1995 }, { name: "Kona", startYear: 2018 }] },
+  { make: "Kia", models: [{ name: "Pride", startYear: 1995, endYear: 2005 }, { name: "Rio", startYear: 2000, endYear: 2023 }, { name: "Picanto", startYear: 2004 }, { name: "Soluto", startYear: 2019 }, { name: "Stonic", startYear: 2019 }, { name: "Seltos", startYear: 2020 }, { name: "Sportage", startYear: 1995 }, { name: "Sorento", startYear: 2003 }, { name: "Carnival", startYear: 1999 }, { name: "Carens", startYear: 2000, endYear: 2018 }, { name: "Besta", startYear: 1995, endYear: 2003 }] },
+  { make: "Mazda", models: [{ name: "323", startYear: 1995, endYear: 2004 }, { name: "Mazda3", startYear: 2004 }, { name: "Mazda2", startYear: 2008 }, { name: "626", startYear: 1995, endYear: 2002 }, { name: "Mazda6", startYear: 2003 }, { name: "CX-3", startYear: 2016 }, { name: "CX-5", startYear: 2013 }, { name: "CX-7", startYear: 2008, endYear: 2013 }, { name: "CX-9", startYear: 2008 }, { name: "BT-50", startYear: 2007 }, { name: "Tribute", startYear: 2002, endYear: 2011 }, { name: "MX-5", startYear: 1995 }] },
+  { make: "Chevrolet", models: [{ name: "Optra", startYear: 2003, endYear: 2012 }, { name: "Aveo", startYear: 2005, endYear: 2018 }, { name: "Sonic", startYear: 2012, endYear: 2017 }, { name: "Spark", startYear: 2010, endYear: 2021 }, { name: "Cruze", startYear: 2010, endYear: 2018 }, { name: "Malibu", startYear: 2013, endYear: 2015 }, { name: "Tracker", startYear: 2021 }, { name: "Trailblazer", startYear: 2013 }, { name: "Captiva", startYear: 2008, endYear: 2015 }, { name: "Colorado", startYear: 2012, endYear: 2021 }, { name: "Suburban", startYear: 1995, endYear: 2000 }] },
+  { make: "Subaru", models: [{ name: "Impreza", startYear: 1995 }, { name: "WRX", startYear: 2002 }, { name: "Forester", startYear: 1998 }, { name: "XV", startYear: 2012 }, { name: "Crosstrek", startYear: 2023 }, { name: "Outback", startYear: 1995 }, { name: "Legacy", startYear: 1995, endYear: 2022 }, { name: "Levorg", startYear: 2015 }, { name: "BRZ", startYear: 2013 }, { name: "Tribeca", startYear: 2006, endYear: 2014 }] },
+  { make: "MG", models: [{ name: "ZS", startYear: 2018 }, { name: "GT", startYear: 2022 }, { name: "5", startYear: 2021 }, { name: "RX5", startYear: 2018 }, { name: "HS", startYear: 2021 }, { name: "G50", startYear: 2021 }, { name: "Marvel R", startYear: 2024 }] },
+  { make: "Geely", models: [{ name: "Emgrand", startYear: 2022 }, { name: "Coolray", startYear: 2019 }, { name: "Azkarra", startYear: 2020 }, { name: "Okavango", startYear: 2020 }, { name: "GX3 Pro", startYear: 2022 }, { name: "Geometry C", startYear: 2023 }] },
+  { make: "Chery", models: [{ name: "QQ", startYear: 2005, endYear: 2013 }, { name: "Tiggo", startYear: 2008, endYear: 2015 }, { name: "Tiggo 2", startYear: 2018 }, { name: "Tiggo 5X", startYear: 2020 }, { name: "Tiggo 7 Pro", startYear: 2021 }, { name: "Tiggo 8 Pro", startYear: 2022 }, { name: "Arrizo 5", startYear: 2021 }, { name: "Arrizo 8", startYear: 2024 }] },
+  { make: "GAC", models: [{ name: "GA4", startYear: 2019, endYear: 2022 }, { name: "Empow", startYear: 2023 }, { name: "GS3", startYear: 2019 }, { name: "GS4", startYear: 2024 }, { name: "GS8", startYear: 2019 }, { name: "M6 Pro", startYear: 2024 }, { name: "Emkoo", startYear: 2024 }] },
+  { make: "Foton", models: [{ name: "Toplander", startYear: 2017 }, { name: "Traveller", startYear: 2017 }, { name: "Thunder", startYear: 2024 }, { name: "Tornado", startYear: 2010 }, { name: "View", startYear: 2010 }, { name: "Transvan", startYear: 2010 }, { name: "Harabas", startYear: 2010 }] },
+  { make: "JMC", models: [{ name: "Vigus", startYear: 2019 }, { name: "Grand Avenue", startYear: 2023 }, { name: "NHR", startYear: 2015 }] },
+  { make: "BYD", models: [{ name: "Dolphin", startYear: 2023 }, { name: "Atto 3", startYear: 2023 }, { name: "Seal", startYear: 2024 }, { name: "Han", startYear: 2024 }, { name: "Tang", startYear: 2024 }, { name: "Seagull", startYear: 2025 }] },
+  { make: "Peugeot", models: [{ name: "206", startYear: 2002, endYear: 2010 }, { name: "207", startYear: 2007, endYear: 2012 }, { name: "3008", startYear: 2018 }, { name: "5008", startYear: 2018 }, { name: "2008", startYear: 2022 }, { name: "508", startYear: 2012, endYear: 2020 }, { name: "Landtrek", startYear: 2021 }] },
+  { make: "BMW", models: [{ name: "3 Series", startYear: 1995 }, { name: "5 Series", startYear: 1995 }, { name: "7 Series", startYear: 1995 }, { name: "X1", startYear: 2010 }, { name: "X3", startYear: 2004 }, { name: "X5", startYear: 2000 }, { name: "X7", startYear: 2019 }, { name: "Z4", startYear: 2003 }, { name: "1 Series", startYear: 2005 }], aliases: ["Bimmer"] },
+  { make: "Mercedes-Benz", models: [{ name: "C-Class", startYear: 1995 }, { name: "E-Class", startYear: 1995 }, { name: "S-Class", startYear: 1995 }, { name: "A-Class", startYear: 2000 }, { name: "GLA", startYear: 2014 }, { name: "GLC", startYear: 2016 }, { name: "GLE", startYear: 2016 }, { name: "V-Class", startYear: 2016 }, { name: "Sprinter", startYear: 1995 }], aliases: ["Mercedes", "Benz", "MB"] },
+  { make: "Audi", models: [{ name: "A4", startYear: 1995 }, { name: "A6", startYear: 1995 }, { name: "Q3", startYear: 2013 }, { name: "Q5", startYear: 2010 }, { name: "Q7", startYear: 2007 }, { name: "TT", startYear: 1999, endYear: 2023 }] },
+  { make: "Volkswagen", models: [{ name: "Beetle", startYear: 1999, endYear: 2018 }, { name: "Golf", startYear: 1995 }, { name: "Jetta", startYear: 1995, endYear: 2017 }, { name: "Santana", startYear: 2020 }, { name: "T-Cross", startYear: 2020 }, { name: "Tiguan", startYear: 2018 }, { name: "Lavida", startYear: 2023 }] },
+  { make: "Lexus", models: [{ name: "IS", startYear: 1999 }, { name: "ES", startYear: 1995 }, { name: "GS", startYear: 1995, endYear: 2020 }, { name: "LS", startYear: 1995 }, { name: "NX", startYear: 2015 }, { name: "RX", startYear: 2000 }, { name: "GX", startYear: 2004 }, { name: "LX", startYear: 1995 }] },
+  { make: "Mini", models: [{ name: "Cooper", startYear: 2003 }, { name: "Clubman", startYear: 2008, endYear: 2023 }, { name: "Countryman", startYear: 2011 }] },
+  { make: "Land Rover", models: [{ name: "Discovery", startYear: 1995 }, { name: "Range Rover", startYear: 1995 }, { name: "Range Rover Sport", startYear: 2005 }, { name: "Evoque", startYear: 2012 }, { name: "Defender", startYear: 2021 }] },
+  { make: "Jeep", models: [{ name: "Wrangler", startYear: 1995 }, { name: "Cherokee", startYear: 1995 }, { name: "Grand Cherokee", startYear: 1995 }, { name: "Compass", startYear: 2018 }, { name: "Renegade", startYear: 2017, endYear: 2021 }] },
+];
+
+
+const LUZON_REGION_TOWNS: Record<string, string[]> = {
+  "NCR": ["Manila", "Quezon City", "Makati", "Pasig", "Taguig", "Parañaque", "Pasay", "Muntinlupa", "Marikina", "Las Piñas", "Mandaluyong", "Valenzuela", "Malabon", "Navotas", "San Juan", "Caloocan"],
+  "CAR": ["Baguio", "La Trinidad", "Tabuk", "Bangued", "Lagawe", "Bontoc", "Bangued", "Lamut", "Tuba"],
+  "Province Group I - Ilocos Province Group": ["Laoag", "Batac", "Vigan", "Bantay", "San Fernando", "Dagupan", "Alaminos", "Urdaneta", "Lingayen"],
+  "Province Group II - Cagayan Valley": ["Tuguegarao", "Ilagan", "Santiago", "Cauayan", "Bayombong", "Solano", "Aparri", "Basco"],
+  "Province Group III - Central Luzon": ["San Fernando", "Angeles", "Mabalacat", "Balanga", "Malolos", "Meycauayan", "Cabanatuan", "Tarlac City", "Olongapo", "Palayan"],
+  "Province Group IV-A - CALABARZON": ["Antipolo", "Bacoor", "Dasmariñas", "Imus", "Tagaytay", "Calamba", "Santa Rosa", "San Pablo", "Lucena", "Lipa", "Batangas City", "Tanauan"],
+  "Province Group IV-B - MIMAROPA": ["Calapan", "Puerto Princesa", "Roxas", "Mamburao", "Boac", "Romblon", "Odiongan"],
+  "Province Group V - Bicol Province Group": ["Legazpi", "Naga", "Sorsogon City", "Iriga", "Tabaco", "Daet", "Virac", "Masbate City", "Ligao"],
+};
+
+const LUZON_REGION_OPTIONS = Object.keys(LUZON_REGION_TOWNS);
 
 const EMPTY_INSPECTION_SELECTIONS: InspectionSelection = {
   brakes: false,
@@ -614,7 +1008,35 @@ const EMPTY_INSPECTION_SELECTIONS: InspectionSelection = {
   aircon: false,
   steering: false,
   tires: false,
+  alignment: false,
 };
+
+
+const ILOCOS_SUR_MUNICIPALITIES = [
+  "Alilem","Banayoyo","Bantay","Burgos","Cabugao","Caoayan","Cervantes","Galimuyod",
+  "Gregorio del Pilar","Lidlidda","Magsingal","Nagbukel","Narvacan","Quirino","Salcedo",
+  "San Emilio","San Esteban","San Ildefonso","San Juan","San Vicente","Santa",
+  "Santa Catalina","Santa Cruz","Santa Lucia","Santa Maria","Santiago","Santo Domingo",
+  "Sigay","Sinait","Sugpon","Suyo","Tagudin"
+];
+
+const ABRA_MUNICIPALITIES = [
+  "Bangued","Boliney","Bucay","Bucloc","Daguioman","Danglas","Dolores","La Paz","Lacub",
+  "Lagayan","Langiden","Licuan-Baay","Luba","Malibcong","Manabo","Peñarrubia","Pidigan",
+  "Pilar","Sallapadan","San Isidro","San Juan","San Quintin","Tayum","Tineg","Tubo","Villaviciosa"
+];
+
+function getMunicipalitySuggestions(group: "Ilocos Sur" | "Abra" | "", query: string): string[] {
+  const source =
+    group === "Ilocos Sur"
+      ? ILOCOS_SUR_MUNICIPALITIES
+      : group === "Abra"
+      ? ABRA_MUNICIPALITIES
+      : [];
+  const q = query.trim().toLowerCase();
+  if (!q) return source;
+  return source.filter((item) => item.toLowerCase().includes(q));
+}
 
 const DEFAULT_ARRIVAL_CHECKS: ArrivalCheckMap = {
   lights: { status: "Not Checked", note: "" },
@@ -622,6 +1044,148 @@ const DEFAULT_ARRIVAL_CHECKS: ArrivalCheckMap = {
   wipers: { status: "Not Checked", note: "" },
   hornCondition: { status: "Not Checked", note: "" },
 };
+
+const UNDER_HOOD_INSPECTION_LABELS: Record<UnderHoodInspectionKey, string> = {
+  engineOil: "Engine Oil",
+  coolant: "Coolant",
+  brakeFluid: "Brake Fluid",
+  powerSteeringFluid: "Power Steering Fluid",
+  battery: "Battery",
+  belts: "Belts",
+  hoses: "Hoses",
+  airFilter: "Air Filter",
+  cabinFilter: "Cabin Filter",
+  fluidLeaks: "Fluid Leaks",
+};
+
+const DEFAULT_UNDER_HOOD_INSPECTION: UnderHoodInspectionMap = {
+  engineOil: { status: "OK", note: "" },
+  coolant: { status: "OK", note: "" },
+  brakeFluid: { status: "OK", note: "" },
+  powerSteeringFluid: { status: "OK", note: "" },
+  battery: { status: "OK", note: "" },
+  belts: { status: "OK", note: "" },
+  hoses: { status: "OK", note: "" },
+  airFilter: { status: "OK", note: "" },
+  cabinFilter: { status: "OK", note: "" },
+  fluidLeaks: { status: "OK", note: "" },
+};
+
+
+const UNDER_HOOD_NOTE_PRESETS: Record<UnderHoodInspectionKey, Record<UnderHoodInspectionStatus, string[]>> = {
+  engineOil: {
+    OK: ["Level OK", "Oil still clean", "No sludge seen", "No leak at cap / pan"],
+    "Needs Attention": ["Low level", "Dirty oil", "Due for oil change", "Monitor for seepage"],
+    Urgent: ["Very low level", "Contaminated oil", "Active oil leak", "Change immediately"],
+  },
+  coolant: {
+    OK: ["Reservoir level OK", "Coolant clean", "No overheating signs", "Hoses dry"],
+    "Needs Attention": ["Low coolant", "Needs top-up", "Rusty coolant", "Check cooling system"],
+    Urgent: ["Very low coolant", "Coolant leak present", "Overheating risk", "Immediate cooling service"],
+  },
+  brakeFluid: {
+    OK: ["Level OK", "Fluid clear", "Reservoir normal"],
+    "Needs Attention": ["Low level", "Dark fluid", "Moisture contamination possible", "Flush soon"],
+    Urgent: ["Very low level", "Possible brake leak", "Immediate brake fluid service", "Unsafe to drive"],
+  },
+  powerSteeringFluid: {
+    OK: ["Level OK", "Fluid condition normal", "No steering leak seen"],
+    "Needs Attention": ["Low level", "Fluid dark", "Needs top-up", "Inspect steering system"],
+    Urgent: ["Very low level", "Steering fluid leak", "Immediate repair needed", "Unsafe steering assist"],
+  },
+  battery: {
+    OK: ["Battery secure", "Terminals clean", "Voltage normal", "Hold-down OK"],
+    "Needs Attention": ["Weak battery", "Terminals corroded", "Charging check advised", "Needs cleaning"],
+    Urgent: ["Battery failing", "Loose terminal", "Replace battery soon", "Starting issue risk"],
+  },
+  belts: {
+    OK: ["No visible cracks", "Proper tension", "Belt condition normal"],
+    "Needs Attention": ["Minor cracks", "Slight wear", "Monitor belt condition", "Recheck next service"],
+    Urgent: ["Cracked belt", "Frayed belt", "Loose belt", "Replace belt immediately"],
+  },
+  hoses: {
+    OK: ["No swelling seen", "No leaks seen", "Hoses secure", "Condition normal"],
+    "Needs Attention": ["Soft hose", "Minor seepage", "Clamp needs check", "Monitor hose condition"],
+    Urgent: ["Bulging hose", "Hose leak", "Cracked hose", "Replace hose immediately"],
+  },
+  airFilter: {
+    OK: ["Filter clean", "Airflow normal", "No replacement needed"],
+    "Needs Attention": ["Dirty filter", "Needs cleaning", "Replace soon", "Dust buildup present"],
+    Urgent: ["Heavily clogged", "Restricted airflow", "Immediate replacement advised"],
+  },
+  cabinFilter: {
+    OK: ["Filter clean", "Airflow normal", "No foul odor noted"],
+    "Needs Attention": ["Dirty filter", "Needs cleaning", "Replace soon", "Airflow reduced"],
+    Urgent: ["Heavily clogged", "Very poor airflow", "Immediate replacement advised"],
+  },
+  fluidLeaks: {
+    OK: ["No active leak seen", "Dry under hood", "No seepage noted"],
+    "Needs Attention": ["Minor seepage", "Monitor for leaks", "Needs further check", "Source not yet confirmed"],
+    Urgent: ["Active leak present", "Immediate repair needed", "Unsafe to ignore", "Major fluid loss risk"],
+  },
+};
+
+function getUnderHoodNotePresets(key: UnderHoodInspectionKey, status: UnderHoodInspectionStatus): string[] {
+  const byKey = UNDER_HOOD_NOTE_PRESETS[key] || {};
+  return byKey[status] || [];
+}
+
+const UNDER_HOOD_RECOMMENDATION_LINKS: Record<UnderHoodInspectionKey, InspectionIssueKey[]> = {
+  engineOil: ["engine"],
+  coolant: ["engine"],
+  brakeFluid: ["brakes"],
+  powerSteeringFluid: ["steering"],
+  battery: ["electrical"],
+  belts: ["engine"],
+  hoses: ["engine"],
+  airFilter: ["engine"],
+  cabinFilter: ["aircon"],
+  fluidLeaks: ["engine"],
+};
+
+function getUnderHoodRecommendedCategories(
+  key: UnderHoodInspectionKey,
+  status: UnderHoodInspectionStatus,
+): InspectionIssueKey[] {
+  if (status === "OK") return [];
+  const base = UNDER_HOOD_RECOMMENDATION_LINKS[key] || [];
+  if (key === "fluidLeaks" && status === "Urgent") {
+    return Array.from(new Set([...base, "brakes", "steering"]));
+  }
+  if (key === "battery" && status === "Urgent") {
+    return Array.from(new Set([...base, "engine"]));
+  }
+  return base;
+}
+
+function getUnderHoodNoteChips(note: string): string[] {
+  return String(note || "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+const DEFAULT_TIRE_INSPECTION: TireInspectionMap = {
+  frontLeft: { condition: "Good", treadDepthMm: "", unsafe: false },
+  frontRight: { condition: "Good", treadDepthMm: "", unsafe: false },
+  rearLeft: { condition: "Good", treadDepthMm: "", unsafe: false },
+  rearRight: { condition: "Good", treadDepthMm: "", unsafe: false },
+};
+
+const TIRE_POSITION_LABELS: Record<TirePosition, string> = {
+  frontLeft: "Front Left",
+  frontRight: "Front Right",
+  rearLeft: "Rear Left",
+  rearRight: "Rear Right",
+};
+
+const TIRE_POSITION_SHORT_LABELS: Record<TirePosition, string> = {
+  frontLeft: "Front Left",
+  frontRight: "Front Right",
+  rearLeft: "Rear Left",
+  rearRight: "Rear Right",
+};
+
 
 const createDefaultTakeNotes = (): InspectionTakeNote[] => [
   { id: "tn-1", title: "Take Note 1", note: "", photoUrl: "" },
@@ -635,8 +1199,15 @@ const DEFAULT_INSPECTION_FORM: InspectionForm = {
   vehicleMake: "",
   vehicleModel: "",
   vehicleYear: "",
+  fuelType: "",
+  transmissionType: "",
   customer: "",
+  customerFirstName: "",
+  customerLastName: "",
   customerPhone: "",
+  customerEmail: "",
+  municipality: "",
+  region: "",
   odometer: "",
   bay: "Bay 1",
   priority: "Normal",
@@ -648,9 +1219,15 @@ const DEFAULT_INSPECTION_FORM: InspectionForm = {
   initialExteriorPhotos: [],
   takeNotes: createDefaultTakeNotes(),
   arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS },
+  tireInspection: { ...DEFAULT_TIRE_INSPECTION },
+  underHoodInspection: { ...DEFAULT_UNDER_HOOD_INSPECTION },
   customerVisibleFindings: "",
   recommendationsSummary: "",
   serviceAdvisorNotes: "",
+  customerType: "Person",
+  companyName: "",
+  municipalityGroup: "",
+  customerMunicipality: "",
 };
 
 const DEFAULT_RELEASE_CHECKLIST: ReleaseChecklist = {
@@ -735,6 +1312,21 @@ const DEFAULT_INVENTORY_FORM: InventoryForm = {
   location: "",
 };
 
+const DEFAULT_EMPLOYEE_FORM: EmployeeForm = {
+  employeeCode: "",
+  firstName: "",
+  lastName: "",
+  displayName: "",
+  role: "Technician",
+  department: "Workshop",
+  phone: "",
+  username: "",
+  password: "",
+  active: true,
+  mustChangePassword: false,
+  allowedViews: undefined,
+};
+
 const DEFAULT_SALES_FORM: SalesForm = {
   entryDate: new Date().toISOString().slice(0, 10),
   grossSales: "",
@@ -769,11 +1361,153 @@ const DEFAULT_WORK_LINE: ROWorkLine = {
   overrideNote: "",
 };
 
+const ALL_VIEWS: ViewKey[] = [
+  "dashboard",
+  "vehicleIntake",
+  "inspection",
+  "approval",
+  "ro",
+  "parts",
+  "shop",
+  "tech",
+  "billing",
+  "customerSummary",
+  "history",
+  "backJob",
+  "activityLogs",
+  "salesReports",
+  "purchasing",
+  "inventory",
+  "employees",
+];
+
+function getDefaultAllowedViewsForRole(role: UserRole): ViewKey[] {
+  if (role === "Admin") return [...ALL_VIEWS];
+  if (["Management", "Manager", "Assistant Manager"].includes(role)) {
+    return [
+      "dashboard",
+      "vehicleIntake",
+      "inspection",
+      "approval",
+      "ro",
+      "parts",
+      "shop",
+      "tech",
+      "billing",
+      "customerSummary",
+      "history",
+      "backJob",
+      "activityLogs",
+      "salesReports",
+      "purchasing",
+      "inventory",
+      "employees",
+    ];
+  }
+  if (role === "Service Advisor") {
+    return ["dashboard", "vehicleIntake", "inspection", "approval", "ro", "parts", "billing", "customerSummary", "history", "salesReports"];
+  }
+  if (role === "Office Staff" || role === "Reception") {
+    return ["dashboard", "vehicleIntake", "inspection", "ro", "billing", "customerSummary", "history"];
+  }
+  if (role === "Technician" || role === "Mechanic") {
+    return ["dashboard", "shop", "tech", "ro", "parts", "history"];
+  }
+  return ["dashboard"];
+}
+
+function normalizeEmployeeRecord(raw: Partial<EmployeeRecord>, index = 0): EmployeeRecord {
+  const role = (raw.role || "Technician") as UserRole;
+  const firstName = String(raw.firstName || "").trim();
+  const lastName = String(raw.lastName || "").trim();
+  const displayName = String(raw.displayName || [firstName, lastName].filter(Boolean).join(" ") || raw.username || `Employee ${index + 1}`).trim();
+  return {
+    id: raw.id || `emp-${index + 1}`,
+    employeeCode: raw.employeeCode || `EMP-${String(index + 1).padStart(3, "0")}`,
+    firstName,
+    lastName,
+    displayName,
+    role,
+    department: String(raw.department || (["Admin", "Management", "Manager", "Assistant Manager"].includes(role) ? "Management" : role === "Service Advisor" ? "Front Desk" : "Workshop")),
+    phone: String(raw.phone || ""),
+    username: String(raw.username || `employee${index + 1}`),
+    password: String(raw.password || "123456"),
+    active: raw.active !== false,
+    mustChangePassword: Boolean(raw.mustChangePassword),
+    allowedViews: Array.isArray(raw.allowedViews) && raw.allowedViews.length ? raw.allowedViews.filter((view): view is ViewKey => ALL_VIEWS.includes(view as ViewKey)) : undefined,
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function seedEmployeesFromUsers(users: User[]): EmployeeRecord[] {
+  return users.map((user, index) => normalizeEmployeeRecord(user, index));
+}
+
+function canAccessViewForUser(currentUser: User | null, targetView: ViewKey): boolean {
+  if (!currentUser) return false;
+  const allowedViews = currentUser.allowedViews?.length ? currentUser.allowedViews : getDefaultAllowedViewsForRole(currentUser.role);
+  return allowedViews.includes(targetView);
+}
+
+function mapEmployeeToTechnicianRole(role: UserRole): string {
+  if (role === "Technician") return "Technician";
+  if (role === "Mechanic") return "Mechanic";
+  return role;
+}
+
 /* =========================
    HELPERS
 ========================= */
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const getTodayDateString = () => new Date().toISOString().slice(0, 10);
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function buildDateSerialPrefix(dateLike?: number | string | Date): string {
+  const d =
+    dateLike instanceof Date
+      ? dateLike
+      : typeof dateLike === "number" || typeof dateLike === "string"
+      ? new Date(dateLike)
+      : new Date();
+
+  const safeDate = Number.isNaN(d.getTime()) ? new Date() : d;
+  const yyyy = safeDate.getFullYear();
+  const mm = pad2(safeDate.getMonth() + 1);
+  const dd = pad2(safeDate.getDate());
+
+  return `${yyyy}${mm}${dd}`;
+}
+
+function parseStandardNumberSequence(value: string): { prefix: string; seq: number } | null {
+  const match = String(value || "").trim().match(/^([A-Z]+)-(\d{8})-(\d{3,})$/);
+  if (!match) return null;
+  return {
+    prefix: `${match[1]}-${match[2]}`,
+    seq: Number(match[3]),
+  };
+}
+
+function generateStandardNumber(
+  typePrefix: string,
+  existingValues: string[],
+  dateLike?: number | string | Date,
+): string {
+  const datePrefix = buildDateSerialPrefix(dateLike);
+  const fullPrefix = `${typePrefix}-${datePrefix}`;
+
+  const maxSeq = existingValues.reduce((max, value) => {
+    const parsed = parseStandardNumberSequence(value);
+    if (!parsed) return max;
+    if (parsed.prefix !== fullPrefix) return max;
+    return Math.max(max, parsed.seq);
+  }, 0);
+
+  return `${fullPrefix}-${String(maxSeq + 1).padStart(3, "0")}`;
+}
 
 function safeLoad<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -787,6 +1521,61 @@ function safeLoad<T>(key: string, fallback: T): T {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function normalizeLegacyVehicleCatalog(raw: unknown): VehicleCatalogEntry[] {
+  if (!Array.isArray(raw)) return DEFAULT_PH_VEHICLE_CATALOG;
+
+  const normalized = raw
+    .map((entry: any) => {
+      if (!entry || typeof entry !== "object") return null;
+      const make = String(entry.make || "").trim();
+      if (!make) return null;
+
+      const rawModels = Array.isArray(entry.models) ? entry.models : [];
+      const models = rawModels
+        .map((model: any) => {
+          if (typeof model === "string") {
+            const name = model.trim();
+            return name ? { name } : null;
+          }
+          if (model && typeof model === "object") {
+            const name = String(model.name || "").trim();
+            if (!name) return null;
+            return {
+              name,
+              startYear:
+                model.startYear !== undefined && model.startYear !== null && model.startYear !== ""
+                  ? Number(model.startYear)
+                  : undefined,
+              endYear:
+                model.endYear !== undefined && model.endYear !== null && model.endYear !== ""
+                  ? Number(model.endYear)
+                  : undefined,
+              aliases: Array.isArray(model.aliases)
+                ? model.aliases.map((alias: unknown) => String(alias).trim()).filter(Boolean)
+                : undefined,
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      return {
+        make,
+        models,
+        aliases: Array.isArray(entry.aliases)
+          ? entry.aliases.map((alias: unknown) => String(alias).trim()).filter(Boolean)
+          : undefined,
+      };
+    })
+    .filter(Boolean);
+
+  return normalized.length ? normalized : DEFAULT_PH_VEHICLE_CATALOG;
+}
+
+function normalizeVehicleCatalogUrl(raw: unknown): string {
+  return typeof raw === "string" ? raw : "";
 }
 
 function getMonthKeyFromDateString(value: string): string {
@@ -1073,7 +1862,9 @@ function normalizeLegacyRepairOrder(ro: Partial<RepairOrder>): RepairOrder {
 
   const normalized: RepairOrder = {
     id: ro.id || uid(),
-    roNumber: ro.roNumber || `RO-${Date.now()}`,
+    roNumber:
+      ro.roNumber ||
+      generateStandardNumber("RO", [], ro.createdAt || Date.now()),
     plate: ro.plate || "",
     vehicle: normalizedVehicle || "",
     vehicleMake: ro.vehicleMake || "",
@@ -1106,6 +1897,16 @@ function normalizeLegacyRepairOrder(ro: Partial<RepairOrder>): RepairOrder {
     initialExteriorPhotos: Array.isArray(ro.initialExteriorPhotos) ? ro.initialExteriorPhotos : [],
     takeNotes: Array.isArray(ro.takeNotes) && ro.takeNotes.length ? ro.takeNotes : createDefaultTakeNotes(),
     arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS, ...(ro.arrivalChecks || {}) },
+    tireInspection: {
+      ...DEFAULT_TIRE_INSPECTION,
+      ...Object.fromEntries(
+        Object.entries((ro as any).tireInspection || {}).map(([key, value]) => [
+          key,
+          buildTireInspectionItem(DEFAULT_TIRE_INSPECTION[key as TirePosition] || DEFAULT_TIRE_INSPECTION.frontLeft, value as Partial<TireInspectionItem>),
+        ]),
+      ),
+    },
+    underHoodInspection: ensureUnderHoodInspectionMap((ro as any).underHoodInspection),
     serviceAdvisorNotes: ro.serviceAdvisorNotes || "",
     softLocked: Boolean(ro.softLocked),
     lockOverrideReason: ro.lockOverrideReason || "",
@@ -1205,6 +2006,91 @@ function getPriorityStyle(priority: Priority): React.CSSProperties {
   return styles.badgeMuted;
 }
 
+function getRoWarnings(ro: RepairOrder): string[] {
+  const warnings: string[] = [];
+  if (!ro.inspectionCompleted) warnings.push("Inspection incomplete");
+  if (ro.invoiceStatus !== "Paid" && ro.releaseStatus === "Released") warnings.push("Released with unpaid balance");
+  if (ro.workLines.some((line) => line.approvalStatus === "Pending Approval")) warnings.push("Pending approval");
+  if (ro.workLines.some((line) => line.partsSummary === "Waiting Parts")) warnings.push("Waiting parts");
+  if (ro.isReturnJob) warnings.push("Comeback job");
+  return warnings;
+}
+
+function detectCompanyLikeName(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  if (!text) return false;
+  return [
+    "inc",
+    "corp",
+    "corporation",
+    "company",
+    "co.",
+    "enterprises",
+    "enterprise",
+    "trading",
+    "motors",
+    "services",
+    "lending",
+    "foundation",
+    "association",
+    "school",
+    "hospital",
+    "construction",
+  ].some((token) => text.includes(token));
+}
+
+function getVehicleIntakeValidation(form: InspectionForm) {
+  const firstName = (form.customerFirstName || "").trim();
+  const lastName = (form.customerLastName || "").trim();
+  const companyName = (form.companyName || "").trim();
+  const phone = (form.customerPhone || "").trim();
+  const municipality = (form.customerMunicipality || "").trim();
+
+  const customerMode = companyName
+    ? "Company"
+    : firstName || lastName
+    ? "Person"
+    : "Unspecified";
+
+  const missing: string[] = [];
+  if (!form.plate.trim()) missing.push("Plate Number");
+  if (!form.vehicleYear.trim()) missing.push("Year");
+  if (!form.vehicleMake.trim()) missing.push("Make");
+  if (!form.vehicleModel.trim()) missing.push("Model");
+  if (!form.odometer.trim()) missing.push("Odometer");
+  if (!(form as any).fuelType?.trim()) missing.push("Fuel Type");
+  if (!(form as any).transmissionType?.trim()) missing.push("Transmission Type");
+  if (!phone) missing.push("Phone Number");
+  if (!municipality) missing.push("Municipality / Town");
+  if (!municipality) missing.push("Municipality / Town");
+
+  const customerErrors: string[] = [];
+  if (!companyName && !(firstName && lastName)) {
+    customerErrors.push("Enter either Company Name or both First Name and Last Name.");
+  }
+  if (companyName && (firstName || lastName)) {
+    customerErrors.push("Use either Company Name or Person Name fields, not both.");
+  }
+  if (phone && !(new RegExp("^[0-9+()\\s-]{7,20}$")).test(phone)) {
+    customerErrors.push("Phone Number format looks incomplete.");
+  }
+
+  const warnings: string[] = [];
+  if (!companyName && detectCompanyLikeName(`${firstName} ${lastName}`)) {
+    warnings.push("The entered name looks like a company. Consider using Company Name instead.");
+  }
+  if (companyName && !detectCompanyLikeName(companyName)) {
+    warnings.push("Company Name does not look like a typical business name, but this is still allowed.");
+  }
+
+  return {
+    customerMode,
+    missing,
+    customerErrors,
+    warnings,
+    isValid: missing.length === 0 && customerErrors.length === 0,
+  };
+}
 
 function buildInspectionVehicleLabel(form: InspectionForm): string {
   const composed = [form.vehicleYear, form.vehicleMake, form.vehicleModel]
@@ -1215,6 +2101,201 @@ function buildInspectionVehicleLabel(form: InspectionForm): string {
 }
 
 
+
+function normalizeVehicleCatalogPayload(payload: unknown): VehicleCatalogEntry[] {
+  const normalizeModel = (value: unknown): VehicleCatalogModel | null => {
+    if (typeof value === "string") {
+      const name = value.trim();
+      return name ? { name } : null;
+    }
+    if (!value || typeof value !== "object") return null;
+    const name = String((value as any).name || "").trim();
+    if (!name) return null;
+    return {
+      name,
+      startYear: Number.isFinite(Number((value as any).startYear)) ? Number((value as any).startYear) : undefined,
+      endYear: Number.isFinite(Number((value as any).endYear)) ? Number((value as any).endYear) : undefined,
+      aliases: Array.isArray((value as any).aliases)
+        ? Array.from(new Set((value as any).aliases.map((alias: unknown) => String(alias).trim()).filter(Boolean)))
+        : [],
+    };
+  };
+
+  if (Array.isArray(payload)) {
+    return payload
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const make = String((item as any).make || "").trim();
+        const models = Array.isArray((item as any).models)
+          ? Array.from(
+              new Map(
+                (item as any).models
+                  .map((model: unknown) => normalizeModel(model))
+                  .filter(Boolean)
+                  .map((model: VehicleCatalogModel) => [model.name.toLowerCase(), model]),
+              ).values(),
+            )
+          : [];
+        const aliases = Array.isArray((item as any).aliases)
+          ? Array.from(new Set((item as any).aliases.map((alias: unknown) => String(alias).trim()).filter(Boolean)))
+          : [];
+        if (!make) return null;
+        return { make, models, aliases };
+      })
+      .filter(Boolean) as VehicleCatalogEntry[];
+  }
+
+  if (payload && typeof payload === "object") {
+    return Object.entries(payload as Record<string, unknown>)
+      .map(([make, models]) => ({
+        make: String(make).trim(),
+        models: Array.isArray(models)
+          ? Array.from(
+              new Map(
+                models
+                  .map((model) => normalizeModel(model))
+                  .filter(Boolean)
+                  .map((model: VehicleCatalogModel) => [model.name.toLowerCase(), model]),
+              ).values(),
+            )
+          : [],
+      }))
+      .filter((item) => item.make);
+  }
+
+  return [];
+}
+
+function filterVehicleMakes(catalog: VehicleCatalogEntry[], query: string): VehicleCatalogEntry[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return catalog.slice().sort((a, b) => a.make.localeCompare(b.make));
+  return catalog.filter((entry) => {
+    const haystacks = [entry.make, ...(entry.aliases || [])].map((value) => value.toLowerCase());
+    return haystacks.some((value) => value.includes(q));
+  });
+}
+
+function filterVehicleModels(
+  catalog: VehicleCatalogEntry[],
+  makeQuery: string,
+  modelQuery: string,
+  yearQuery?: string,
+): string[] {
+  const makeEntry =
+    catalog.find((entry) => entry.make.toLowerCase() === makeQuery.trim().toLowerCase()) ||
+    filterVehicleMakes(catalog, makeQuery)[0];
+
+  const year = Number(yearQuery);
+  const hasYear = Number.isFinite(year) && year > 1900;
+  const models = (makeEntry?.models || []).filter((model) => {
+    if (!hasYear) return true;
+    const startOk = model.startYear ? year >= model.startYear : true;
+    const endOk = model.endYear ? year <= model.endYear : true;
+    return startOk && endOk;
+  });
+
+  const q = modelQuery.trim().toLowerCase();
+  const filtered = !q
+    ? models
+    : models.filter((model) => {
+        const haystacks = [model.name, ...(model.aliases || [])].map((value) => value.toLowerCase());
+        return haystacks.some((value) => value.includes(q));
+      });
+
+  return filtered.map((model) => model.name).sort((a, b) => a.localeCompare(b));
+}
+
+function getVehicleCatalogCoverageLabel(catalog: VehicleCatalogEntry[], makeQuery: string): string {
+  const makeEntry =
+    catalog.find((entry) => entry.make.toLowerCase() === makeQuery.trim().toLowerCase()) ||
+    filterVehicleMakes(catalog, makeQuery)[0];
+
+  if (!makeEntry || !makeEntry.models.length) return "Manual entry still allowed for rare or grey-market vehicles.";
+  const years = makeEntry.models.flatMap((model) => [model.startYear || 1995, model.endYear || new Date().getFullYear()]);
+  const minYear = Math.min(...years);
+  const maxYear = Math.max(...years);
+  return `Historical PH catalog coverage for ${makeEntry.make}: ${minYear}–${maxYear}`;
+}
+
+
+function getSuggestedMunicipalities(region: string, query: string): string[] {
+  const base = LUZON_REGION_TOWNS[region] || [];
+  const q = query.trim().toLowerCase();
+  if (!q) return base.slice().sort((a, b) => a.localeCompare(b));
+  return base.filter((town) => town.toLowerCase().includes(q)).sort((a, b) => a.localeCompare(b));
+}
+
+function buildCustomerDisplayName(form: InspectionForm): string {
+  const fullName = [form.customerFirstName, form.customerLastName].map((v) => v.trim()).filter(Boolean).join(" ");
+  return form.companyName.trim() || fullName || form.customer.trim();
+}
+
+function buildCustomerLookupText(ro: RepairOrder): string {
+  return [
+    ro.customer,
+    ro.customerFirstName,
+    ro.customerLastName,
+    ro.customerPhone,
+    ro.customerEmail,
+    ro.plate,
+    ro.vehicle,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildInspectionFormFromRO(ro: RepairOrder): InspectionForm {
+  const selectedIssues = ro.workLines.reduce((acc, line) => {
+    const issue = INSPECTION_ISSUES.find((item) => item.category.toLowerCase() === String(line.category || "").toLowerCase());
+    if (issue) acc[issue.key] = true;
+    return acc;
+  }, { ...EMPTY_INSPECTION_SELECTIONS } as InspectionSelection);
+
+  const companyLike = detectCompanyLikeName(ro.customer || "");
+  return {
+    ...DEFAULT_INSPECTION_FORM,
+    plate: ro.plate || "",
+    vehicle: ro.vehicle || "",
+    vehicleMake: ro.vehicleMake || "",
+    vehicleModel: ro.vehicleModel || "",
+    vehicleYear: ro.vehicleYear || "",
+    fuelType: (ro.fuelType || "") as FuelType | "",
+    transmissionType: (ro.transmissionType || "") as TransmissionType | "",
+    customer: ro.customer || "",
+    customerFirstName: ro.customerFirstName || "",
+    customerLastName: ro.customerLastName || "",
+    customerPhone: ro.customerPhone || "",
+    customerEmail: ro.customerEmail || "",
+    municipality: ro.municipality || "",
+    region: ro.region || "",
+    odometer: ro.odometer || "",
+    bay: ro.bay || "Bay 1",
+    priority: ro.priority || "Normal",
+    issues: selectedIssues,
+    isReturnJob: Boolean(ro.isReturnJob),
+    returnReason: ro.returnReason || "",
+    linkedPreviousRoId: ro.linkedPreviousRoId || "",
+    inspectionPhotos: Array.isArray(ro.inspectionPhotos) ? ro.inspectionPhotos : [],
+    initialExteriorPhotos: Array.isArray(ro.initialExteriorPhotos) ? ro.initialExteriorPhotos : [],
+    takeNotes: Array.isArray(ro.takeNotes) && ro.takeNotes.length ? ro.takeNotes : createDefaultTakeNotes(),
+    arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS, ...(ro.arrivalChecks || {}) },
+    tireInspection: ensureTireInspectionMap(ro.tireInspection),
+    underHoodInspection: ensureUnderHoodInspectionMap((ro as any).underHoodInspection),
+    customerVisibleFindings: ro.customerVisibleFindings || "",
+    recommendationsSummary: ro.recommendationsSummary || "",
+    serviceAdvisorNotes: ro.serviceAdvisorNotes || "",
+    customerType: companyLike ? "Company" : "Person",
+    companyName: companyLike ? ro.customer || "" : "",
+    municipalityGroup:
+      ro.municipality && ILOCOS_SUR_MUNICIPALITIES.includes(ro.municipality)
+        ? "Ilocos Sur"
+        : ro.municipality && ABRA_MUNICIPALITIES.includes(ro.municipality)
+        ? "Abra"
+        : "",
+    customerMunicipality: ro.municipality || "",
+  };
+}
 
 function getCustomerSummaryAttachments(ro: RepairOrder) {
   const inspection = (ro.inspectionPhotos || []).map((photo) => ({
@@ -1424,8 +2505,134 @@ function renderArrivalCheckLabel(key: ArrivalCheckKey): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
+function getTreadDepthAssessment(treadDepthMm: string) {
+  const raw = String(treadDepthMm || "").trim();
+  const treadDepth = Number(raw);
+  if (!raw || Number.isNaN(treadDepth)) {
+    return {
+      label: "Not Measured",
+      tone: "neutral" as const,
+      background: "#f3f4f6",
+      text: "#374151",
+      border: "#d1d5db",
+    };
+  }
+  if (treadDepth <= 1.66) {
+    return {
+      label: "Legal Limit",
+      tone: "critical" as const,
+      background: "#ef4444",
+      text: "#ffffff",
+      border: "#dc2626",
+    };
+  }
+  if (treadDepth <= 2) {
+    return {
+      label: "Won’t Last Long",
+      tone: "danger" as const,
+      background: "#fb7185",
+      text: "#ffffff",
+      border: "#e11d48",
+    };
+  }
+  if (treadDepth <= 3) {
+    return {
+      label: "Inspect Monthly",
+      tone: "warn" as const,
+      background: "#fbbf24",
+      text: "#111827",
+      border: "#f59e0b",
+    };
+  }
+  if (treadDepth <= 5) {
+    return {
+      label: "OK",
+      tone: "ok" as const,
+      background: "#fcd34d",
+      text: "#111827",
+      border: "#f59e0b",
+    };
+  }
+  return {
+    label: "Good",
+    tone: "good" as const,
+    background: "#9bd27d",
+    text: "#0f172a",
+    border: "#65a30d",
+  };
+}
+
+function getUnsafeTireFlag(condition: TireCondition, treadDepthMm: string): boolean {
+  const treadAssessment = getTreadDepthAssessment(treadDepthMm);
+  if (condition === "Bald" || condition === "Worn") return true;
+  return treadAssessment.tone === "danger" || treadAssessment.tone === "critical";
+}
+
+function buildTireInspectionItem(
+  current: TireInspectionItem,
+  patch: Partial<TireInspectionItem>,
+): TireInspectionItem {
+  const next = { ...current, ...patch };
+  return {
+    ...next,
+    unsafe: getUnsafeTireFlag(next.condition, next.treadDepthMm),
+  };
+}
+
+function ensureTireInspectionMap(value?: Partial<TireInspectionMap> | null): TireInspectionMap {
+  const base = { ...DEFAULT_TIRE_INSPECTION } as TireInspectionMap;
+  if (!value || typeof value !== "object") return base;
+  (Object.keys(TIRE_POSITION_LABELS) as TirePosition[]).forEach((position) => {
+    const raw = (value as any)?.[position];
+    base[position] = buildTireInspectionItem(base[position], raw || {});
+  });
+  return base;
+}
+
+
+function ensureUnderHoodInspectionMap(value?: Partial<UnderHoodInspectionMap> | null): UnderHoodInspectionMap {
+  const base = { ...DEFAULT_UNDER_HOOD_INSPECTION } as UnderHoodInspectionMap;
+  if (!value || typeof value !== "object") return base;
+  (Object.keys(UNDER_HOOD_INSPECTION_LABELS) as UnderHoodInspectionKey[]).forEach((key) => {
+    const raw = (value as any)?.[key] || {};
+    base[key] = {
+      status: raw.status === "Needs Attention" || raw.status === "Urgent" ? raw.status : "OK",
+      note: String(raw.note || ""),
+    };
+  });
+  return base;
+}
+
+function getUnderHoodInspectionSummary(map: UnderHoodInspectionMap) {
+  const items = Object.values(map);
+  return {
+    needsAttention: items.filter((item) => item.status === "Needs Attention").length,
+    urgent: items.filter((item) => item.status === "Urgent").length,
+  };
+}
+
+function getTireInspectionSummary(tireInspection: TireInspectionMap) {
+  const items = Object.values(tireInspection);
+  return {
+    unsafeCount: items.filter((item) => item.unsafe).length,
+    measuredCount: items.filter((item) => item.treadDepthMm.trim() !== "").length,
+    legalLimitCount: items.filter((item) => getTreadDepthAssessment(item.treadDepthMm).label === "Legal Limit").length,
+  };
+}
+
+function buildTireInspectionText(tireInspection: TireInspectionMap): string {
+  return (Object.keys(TIRE_POSITION_LABELS) as TirePosition[])
+    .map((position) => {
+      const item = tireInspection[position];
+      const tread = item.treadDepthMm.trim() ? `${item.treadDepthMm.trim()} mm` : "No depth entered";
+      const assessment = getTreadDepthAssessment(item.treadDepthMm).label;
+      return `${TIRE_POSITION_LABELS[position]}: ${item.condition} • ${tread} • ${assessment}${item.unsafe ? " • UNSAFE" : ""}`;
+    })
+    .join("\n");
+}
 
 function buildSmsApprovalMessage(ro: RepairOrder, line: ROWorkLine) {
+
   return `AUTO REPAIR APPROVAL
 
 RO: ${ro.roNumber}
@@ -1549,6 +2756,32 @@ function printRepairOrder(ro: RepairOrder) {
     )
     .join("");
 
+  const tireRows = (Object.keys(TIRE_POSITION_LABELS) as TirePosition[])
+    .map(
+      (position) => `
+        <tr>
+          <td style="padding:8px;border:1px solid #ddd;">${TIRE_POSITION_LABELS[position]}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${ro.tireInspection?.[position]?.condition || "Good"}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${ro.tireInspection?.[position]?.treadDepthMm ? `${ro.tireInspection[position].treadDepthMm} mm` : "-"}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${getTreadDepthAssessment(ro.tireInspection?.[position]?.treadDepthMm || "").label}${ro.tireInspection?.[position]?.unsafe ? " • UNSAFE" : ""}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  const safeUnderHoodInspection = ensureUnderHoodInspectionMap((ro as any).underHoodInspection);
+  const underHoodRows = (Object.keys(UNDER_HOOD_INSPECTION_LABELS) as UnderHoodInspectionKey[])
+    .map(
+      (key) => `
+        <tr>
+          <td style="padding:8px;border:1px solid #ddd;">${UNDER_HOOD_INSPECTION_LABELS[key]}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${safeUnderHoodInspection[key].status}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${safeUnderHoodInspection[key].note || "-"}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
   popup.document.write(`
     <html>
       <head>
@@ -1610,6 +2843,31 @@ function printRepairOrder(ro: RepairOrder) {
           <tbody>${arrivalRows}</tbody>
         </table>
 
+        <h2 style="margin-bottom:10px;">Tire Wear Inspection</h2>
+        <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Position</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Condition</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Tread Depth</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Safety Flag</th>
+            </tr>
+          </thead>
+          <tbody>${tireRows}</tbody>
+        </table>
+
+        <h2 style="margin-bottom:10px;">Under the Hood Inspection</h2>
+        <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Item</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Status</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left;">Note</th>
+            </tr>
+          </thead>
+          <tbody>${underHoodRows}</tbody>
+        </table>
+
         <h2 style="margin-bottom:10px;">Take Notes</h2>
         <div style="margin-bottom:20px;">${takeNoteRows}</div>
 
@@ -1637,78 +2895,251 @@ function printRepairOrder(ro: RepairOrder) {
 export default function App() {
   const [view, setView] = useState<ViewKey>("dashboard");
   const [user, setUser] = useState<User | null>(null);
+  const [loginUsername, setLoginUsername] = useState("admin");
+  const [loginPassword, setLoginPassword] = useState("admin123");
+  const [loginError, setLoginError] = useState("");
+  const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== "undefined" ? window.innerWidth : 1280);
+  const [draftBanner, setDraftBanner] = useState<string>("");
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null);
+  const [selectedTirePosition, setSelectedTirePosition] = useState<TirePosition>("frontLeft");
+  const autoSaveTimerRef = useRef<number | null>(null);
 
   const [inspectionForm, setInspectionForm] = useState<InspectionForm>(DEFAULT_INSPECTION_FORM);
   const [paymentForms, setPaymentForms] = useState<Record<string, PaymentForm>>({});
+  const [vehicleCatalog, setVehicleCatalog] = useState<VehicleCatalogEntry[]>(
+    () => normalizeLegacyVehicleCatalog(safeLoad(APP_STORAGE_KEYS.vehicleCatalog, DEFAULT_PH_VEHICLE_CATALOG)),
+  );
+  const [vehicleCatalogUrl, setVehicleCatalogUrl] = useState<string>(
+    () => normalizeVehicleCatalogUrl(safeLoad(APP_STORAGE_KEYS.vehicleCatalogUrl, "")),
+  );
+  const [vehicleCatalogSyncing, setVehicleCatalogSyncing] = useState(false);
   const [smsGatewaySettings, setSmsGatewaySettings] = useState<SmsGatewaySettings>(
-    () => safeLoad("phase11a_sms_gateway", DEFAULT_SMS_GATEWAY_SETTINGS),
+    () => safeLoad(APP_STORAGE_KEYS.smsGateway, DEFAULT_SMS_GATEWAY_SETTINGS),
   );
   const [historySearch, setHistorySearch] = useState("");
 
+  const [employees, setEmployees] = useState<EmployeeRecord[]>(() => {
+    const saved = safeLoad<Partial<EmployeeRecord>[]>(APP_STORAGE_KEYS.employees, []);
+    return (saved.length ? saved : seedEmployeesFromUsers(USERS)).map((employee, index) => normalizeEmployeeRecord(employee, index));
+  });
+  const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(DEFAULT_EMPLOYEE_FORM);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
+  const [editingVehicleIntakeRoId, setEditingVehicleIntakeRoId] = useState<string>("");
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => safeLoad<AttendanceRecord[]>(APP_STORAGE_KEYS.attendanceRecords, []));
+  const [attendanceBoardDate, setAttendanceBoardDate] = useState<string>(getTodayDateString());
+  const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<"All" | AttendanceStatus>("All");
+  const [employeeSearch, setEmployeeSearch] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>(
-    () => safeLoad("phase10_techs", DEFAULT_TECHNICIANS),
+    () => safeLoad(APP_STORAGE_KEYS.technicians, DEFAULT_TECHNICIANS),
   );
   const [suppliers, setSuppliers] = useState<Supplier[]>(
-    () => safeLoad("phase10_suppliers", DEFAULT_SUPPLIERS),
+    () => safeLoad(APP_STORAGE_KEYS.suppliers, DEFAULT_SUPPLIERS),
   );
   const [supplierBids, setSupplierBids] = useState<SupplierBid[]>(
-    () => safeLoad("phase10_bids", []),
+    () => safeLoad(APP_STORAGE_KEYS.bids, []),
   );
   const [inventory, setInventory] = useState<InventoryItem[]>(
-    () => safeLoad("phase10_inventory", DEFAULT_INVENTORY),
+    () => safeLoad(APP_STORAGE_KEYS.inventory, DEFAULT_INVENTORY),
   );
   const [supplierForm, setSupplierForm] = useState<SupplierForm>(DEFAULT_SUPPLIER_FORM);
   const [bidForms, setBidForms] = useState<Record<string, BidForm>>({});
   const [inventoryForm, setInventoryForm] = useState<InventoryForm>(DEFAULT_INVENTORY_FORM);
 
-  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>("phase10_ros", []).map((ro) => normalizeLegacyRepairOrder(ro)));
-  const [parts, setParts] = useState<PartRequest[]>(() => safeLoad("phase10_parts", []));
-  const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>("phase13a_backjobs", []));
-  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>("phase13c_activity_logs", []));
-  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => safeLoad<SalesEntry[]>("phase13d_sales_entries", []));
+  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>(APP_STORAGE_KEYS.ros, []).map((ro) => normalizeLegacyRepairOrder(ro)));
+  const [parts, setParts] = useState<PartRequest[]>(() => safeLoad(APP_STORAGE_KEYS.parts, []));
+  const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>(APP_STORAGE_KEYS.backJobs, []));
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>(APP_STORAGE_KEYS.activityLogs, []));
+  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => safeLoad<SalesEntry[]>(APP_STORAGE_KEYS.salesEntries, []));
   const [salesForm, setSalesForm] = useState<SalesForm>(DEFAULT_SALES_FORM);
+
+  const DRAFT_KEYS = {
+    inspectionForm: "phase17a_draft_inspection_form",
+    paymentForms: "phase17a_draft_payment_forms",
+    supplierForm: "phase17a_draft_supplier_form",
+    bidForms: "phase17a_draft_bid_forms",
+    inventoryForm: "phase17a_draft_inventory_form",
+    salesForm: "phase17a_draft_sales_form",
+    employeeForm: "phase18a_draft_employee_form",
+    view: "phase17a_last_view",
+    savedAt: "phase17a_last_saved_at",
+  } as const;
+
   const [collapsedRos, setCollapsedRos] = useState<Record<string, boolean>>({});
   const [collapsedParts, setCollapsedParts] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    localStorage.setItem("phase10_ros", JSON.stringify(ros));
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    const savedInspection = safeLoad(DRAFT_KEYS.inspectionForm, DEFAULT_INSPECTION_FORM);
+    const savedPaymentForms = safeLoad<Record<string, PaymentForm>>(DRAFT_KEYS.paymentForms, {});
+    const savedSupplierForm = safeLoad<SupplierForm>(DRAFT_KEYS.supplierForm, DEFAULT_SUPPLIER_FORM);
+    const savedBidForms = safeLoad<Record<string, BidForm>>(DRAFT_KEYS.bidForms, {});
+    const savedInventoryForm = safeLoad<InventoryForm>(DRAFT_KEYS.inventoryForm, DEFAULT_INVENTORY_FORM);
+    const savedSalesForm = safeLoad<SalesForm>(DRAFT_KEYS.salesForm, DEFAULT_SALES_FORM);
+    const savedEmployeeForm = safeLoad<EmployeeForm>(DRAFT_KEYS.employeeForm, DEFAULT_EMPLOYEE_FORM);
+    const savedView = safeLoad<ViewKey | "">(DRAFT_KEYS.view, "");
+    const savedAt = safeLoad<number | null>(DRAFT_KEYS.savedAt, null);
+
+    setInspectionForm((prev) => ({
+      ...DEFAULT_INSPECTION_FORM,
+      ...prev,
+      ...savedInspection,
+      tireInspection: ensureTireInspectionMap((savedInspection as Partial<InspectionForm>)?.tireInspection),
+      underHoodInspection: ensureUnderHoodInspectionMap((savedInspection as Partial<InspectionForm>)?.underHoodInspection),
+      customerType: (savedInspection as any)?.customerType === "Company" ? "Company" : "Person",
+      companyName: String((savedInspection as any)?.companyName || ""),
+      municipalityGroup:
+        (savedInspection as any)?.municipalityGroup === "Ilocos Sur" ||
+        (savedInspection as any)?.municipalityGroup === "Abra"
+          ? (savedInspection as any).municipalityGroup
+          : "",
+      customerMunicipality: String((savedInspection as any)?.customerMunicipality || ""),
+    }));
+    setPaymentForms(savedPaymentForms || {});
+    setSupplierForm((prev) => ({ ...prev, ...(savedSupplierForm || {}) }));
+    setBidForms(savedBidForms || {});
+    setInventoryForm((prev) => ({ ...prev, ...(savedInventoryForm || {}) }));
+    setSalesForm((prev) => ({ ...prev, ...(savedSalesForm || {}) }));
+    setEmployeeForm((prev) => ({ ...prev, ...(savedEmployeeForm || {}) }));
+    // Safe-mode startup: ignore recovered last view to prevent reopening a crashing screen.
+    if (savedAt) {
+      setLastAutoSavedAt(savedAt);
+      setDraftBanner(`Recovered draft data from ${new Date(savedAt).toLocaleString()}`);
+      setTimeout(() => setDraftBanner(""), 5000);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (autoSaveTimerRef.current) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      const timestamp = Date.now();
+      try {
+        localStorage.setItem(DRAFT_KEYS.inspectionForm, JSON.stringify(inspectionForm));
+        localStorage.setItem(DRAFT_KEYS.paymentForms, JSON.stringify(paymentForms));
+        localStorage.setItem(DRAFT_KEYS.supplierForm, JSON.stringify(supplierForm));
+        localStorage.setItem(DRAFT_KEYS.bidForms, JSON.stringify(bidForms));
+        localStorage.setItem(DRAFT_KEYS.inventoryForm, JSON.stringify(inventoryForm));
+        localStorage.setItem(DRAFT_KEYS.salesForm, JSON.stringify(salesForm));
+        localStorage.setItem(DRAFT_KEYS.employeeForm, JSON.stringify(employeeForm));
+        localStorage.setItem(DRAFT_KEYS.view, JSON.stringify(view));
+        localStorage.setItem(DRAFT_KEYS.savedAt, JSON.stringify(timestamp));
+        setLastAutoSavedAt(timestamp);
+      } catch {}
+    }, 700);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [inspectionForm, paymentForms, supplierForm, bidForms, inventoryForm, salesForm, employeeForm, view]);
+
+  useEffect(() => {
+    localStorage.setItem(APP_STORAGE_KEYS.ros, JSON.stringify(ros));
   }, [ros]);
 
   useEffect(() => {
-    localStorage.setItem("phase10_parts", JSON.stringify(parts));
+    localStorage.setItem(APP_STORAGE_KEYS.parts, JSON.stringify(parts));
   }, [parts]);
 
   useEffect(() => {
-    localStorage.setItem("phase13a_backjobs", JSON.stringify(backJobs));
+    localStorage.setItem(APP_STORAGE_KEYS.backJobs, JSON.stringify(backJobs));
   }, [backJobs]);
 
   useEffect(() => {
-    localStorage.setItem("phase13c_activity_logs", JSON.stringify(activityLogs));
+    localStorage.setItem(APP_STORAGE_KEYS.activityLogs, JSON.stringify(activityLogs));
   }, [activityLogs]);
 
   useEffect(() => {
-    localStorage.setItem("phase13d_sales_entries", JSON.stringify(salesEntries));
+    localStorage.setItem(APP_STORAGE_KEYS.salesEntries, JSON.stringify(salesEntries));
   }, [salesEntries]);
 
   useEffect(() => {
-    localStorage.setItem("phase10_techs", JSON.stringify(technicians));
+    localStorage.setItem(APP_STORAGE_KEYS.employees, JSON.stringify(employees));
+  }, [employees]);
+
+  useEffect(() => {
+    if (!user) return;
+    const freshUser = employees.find((employee) => employee.id === user.id);
+    if (!freshUser) return;
+    if (!freshUser.active) {
+      setUser(null);
+      return;
+    }
+    if (JSON.stringify(freshUser) !== JSON.stringify(user)) {
+      setUser(freshUser);
+    }
+  }, [employees]);
+
+  useEffect(() => {
+    localStorage.setItem("phase18a_attendance_records", JSON.stringify(attendanceRecords));
+  }, [attendanceRecords]);
+
+  useEffect(() => {
+    localStorage.setItem(APP_STORAGE_KEYS.technicians, JSON.stringify(technicians));
   }, [technicians]);
 
   useEffect(() => {
-    localStorage.setItem("phase10_suppliers", JSON.stringify(suppliers));
+    localStorage.setItem(APP_STORAGE_KEYS.suppliers, JSON.stringify(suppliers));
   }, [suppliers]);
 
   useEffect(() => {
-    localStorage.setItem("phase10_bids", JSON.stringify(supplierBids));
+    localStorage.setItem(APP_STORAGE_KEYS.bids, JSON.stringify(supplierBids));
   }, [supplierBids]);
 
   useEffect(() => {
-    localStorage.setItem("phase10_inventory", JSON.stringify(inventory));
+    localStorage.setItem(APP_STORAGE_KEYS.inventory, JSON.stringify(inventory));
   }, [inventory]);
 
   useEffect(() => {
-    localStorage.setItem("phase11a_sms_gateway", JSON.stringify(smsGatewaySettings));
+    localStorage.setItem(APP_STORAGE_KEYS.smsGateway, JSON.stringify(smsGatewaySettings));
   }, [smsGatewaySettings]);
+
+  useEffect(() => {
+    localStorage.setItem(APP_STORAGE_KEYS.vehicleCatalog, JSON.stringify(vehicleCatalog));
+  }, [vehicleCatalog]);
+
+  useEffect(() => {
+    const normalizedCatalog = normalizeLegacyVehicleCatalog(safeLoad(APP_STORAGE_KEYS.vehicleCatalog, DEFAULT_PH_VEHICLE_CATALOG));
+    const normalizedUrl = normalizeVehicleCatalogUrl(safeLoad(APP_STORAGE_KEYS.vehicleCatalogUrl, ""));
+    setVehicleCatalog((prev) => JSON.stringify(prev) === JSON.stringify(normalizedCatalog) ? prev : normalizedCatalog);
+    setVehicleCatalogUrl((prev) => prev === normalizedUrl ? prev : normalizedUrl);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(APP_STORAGE_KEYS.vehicleCatalogUrl, JSON.stringify(vehicleCatalogUrl));
+  }, [vehicleCatalogUrl]);
+
+  useEffect(() => {
+    setTechnicians((prev) => {
+      const preservedByName = new Map(prev.map((tech) => [tech.name.toLowerCase(), tech]));
+      const employeeTechs = employees
+        .filter((employee) => ["Technician", "Mechanic"].includes(employee.role) && employee.active)
+        .map((employee) => {
+          const existing = preservedByName.get(employee.displayName.toLowerCase());
+          return {
+            id: existing?.id || employee.id,
+            name: employee.displayName,
+            role: existing?.role || mapEmployeeToTechnicianRole(employee.role),
+            clockedIn: existing?.clockedIn || false,
+            currentRoNumber: existing?.currentRoNumber || "",
+            currentWorkLine: existing?.currentWorkLine || "",
+            currentStartedAt: existing?.currentStartedAt,
+            completedJobs: existing?.completedJobs || 0,
+          } as TechnicianProfile;
+        });
+      const nonEmployeeTechs = prev.filter((tech) => !employeeTechs.some((item) => item.name.toLowerCase() === tech.name.toLowerCase()));
+      return [...employeeTechs, ...nonEmployeeTechs];
+    });
+  }, [employees]);
 
   const syncTechniciansFromROs = (nextRos: RepairOrder[]) => {
     setTechnicians((prev) =>
@@ -1812,13 +3243,10 @@ export default function App() {
 
   const canEditRo = (ro: RepairOrder) => !ro.softLocked || !!ro.lockOverrideReason.trim();
 
-  const canViewActivityLogs = user?.role === "Admin" || user?.role === "Manager" || user?.role === "Assistant Manager";
-  const canViewSalesReports = user?.role === "Admin" || user?.role === "Manager" || user?.role === "Assistant Manager";
-  const canEditSalesReports =
-    user?.role === "Admin" ||
-    user?.role === "Manager" ||
-    user?.role === "Assistant Manager" ||
-    user?.role === "Service Advisor";
+  const managementRoles: UserRole[] = ["Admin", "Management", "Manager", "Assistant Manager"];
+  const canViewActivityLogs = !!user && managementRoles.includes(user.role);
+  const canViewSalesReports = !!user && managementRoles.includes(user.role);
+  const canEditSalesReports = (!!user && managementRoles.includes(user.role)) || user?.role === "Service Advisor";
 
   const stringifyActivityValue = (value: unknown) => {
     if (value === undefined) return undefined;
@@ -1863,21 +3291,171 @@ export default function App() {
   };
 
 
+  const clearDraftRecovery = () => {
+    Object.values(DRAFT_KEYS).forEach((key) => localStorage.removeItem(key));
+    setDraftBanner("Draft recovery data cleared.");
+    setTimeout(() => setDraftBanner(""), 3500);
+  };
+
+  const applyUnderHoodPresetNote = (key: UnderHoodInspectionKey, preset: string) => {
+    if (!preset) return;
+    setInspectionForm((p) => {
+      const currentMap = ensureUnderHoodInspectionMap(p.underHoodInspection);
+      const currentNote = String(currentMap[key]?.note || "").trim();
+      const nextNote = currentNote
+        ? currentNote.toLowerCase().includes(preset.toLowerCase())
+          ? currentNote
+          : `${currentNote}; ${preset}`
+        : preset;
+      return {
+        ...p,
+        underHoodInspection: {
+          ...currentMap,
+          [key]: { ...currentMap[key], note: nextNote },
+        },
+      };
+    });
+  };
+
+  const clearUnderHoodNote = (key: UnderHoodInspectionKey) => {
+    setInspectionForm((p) => {
+      const currentMap = ensureUnderHoodInspectionMap(p.underHoodInspection);
+      return {
+        ...p,
+        underHoodInspection: {
+          ...currentMap,
+          [key]: { ...currentMap[key], note: "" },
+        },
+      };
+    });
+  };
+
+  const applyUnderHoodRecommendationLink = (
+    key: UnderHoodInspectionKey,
+    category: InspectionIssueKey,
+  ) => {
+    setInspectionForm((p) => {
+      const currentItem = ensureUnderHoodInspectionMap(p.underHoodInspection)[key];
+      const recommendationText = `${UNDER_HOOD_INSPECTION_LABELS[key]}: ${currentItem.status}${currentItem.note ? ` (${currentItem.note})` : ""}`;
+      const existingSummaryParts = String(p.recommendationsSummary || "")
+        .split(/\n+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const nextSummaryParts = existingSummaryParts.some((item) => item.toLowerCase() === recommendationText.toLowerCase())
+        ? existingSummaryParts
+        : [...existingSummaryParts, recommendationText];
+
+      return {
+        ...p,
+        issues: {
+          ...p.issues,
+          [category]: true,
+        },
+        recommendationsSummary: nextSummaryParts.join("\n"),
+      };
+    });
+  };
+
   /* =========================
      ACTIONS
   ========================= */
 
+  const startVehicleIntakeEditFromRO = (roId: string) => {
+    const target = ros.find((ro) => ro.id === roId);
+    if (!target) return;
+    setEditingVehicleIntakeRoId(roId);
+    setInspectionForm(buildInspectionFormFromRO(target));
+    setSelectedTirePosition("frontLeft");
+    setView("vehicleIntake");
+  };
+
+  const cancelVehicleIntakeEdit = () => {
+    setEditingVehicleIntakeRoId("");
+    setInspectionForm({
+      ...DEFAULT_INSPECTION_FORM,
+      takeNotes: createDefaultTakeNotes(),
+      arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS },
+      tireInspection: { ...DEFAULT_TIRE_INSPECTION },
+      underHoodInspection: { ...DEFAULT_UNDER_HOOD_INSPECTION },
+    });
+  };
+
+  const applyLookupRecordToIntake = (ro: RepairOrder, mode: "fill" | "edit" = "fill") => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      ...buildInspectionFormFromRO(ro),
+      inspectionPhotos: prev.inspectionPhotos.length ? prev.inspectionPhotos : buildInspectionFormFromRO(ro).inspectionPhotos,
+      initialExteriorPhotos: prev.initialExteriorPhotos.length ? prev.initialExteriorPhotos : buildInspectionFormFromRO(ro).initialExteriorPhotos,
+      takeNotes: prev.takeNotes.some((item) => item.note || item.photoUrl) ? prev.takeNotes : buildInspectionFormFromRO(ro).takeNotes,
+    }));
+    if (mode === "edit") {
+      setEditingVehicleIntakeRoId(ro.id);
+      setView("vehicleIntake");
+    }
+  };
+
+  const saveVehicleIntakeEdit = () => {
+    if (!editingVehicleIntakeRoId) return;
+    const target = ros.find((ro) => ro.id === editingVehicleIntakeRoId);
+    if (!target) return;
+    const customerName = buildCustomerDisplayName(inspectionForm);
+    const updatedRo: RepairOrder = {
+      ...target,
+      plate: inspectionForm.plate,
+      vehicle: buildInspectionVehicleLabel(inspectionForm),
+      vehicleMake: inspectionForm.vehicleMake,
+      vehicleModel: inspectionForm.vehicleModel,
+      vehicleYear: inspectionForm.vehicleYear,
+      fuelType: inspectionForm.fuelType,
+      transmissionType: inspectionForm.transmissionType,
+      customer: customerName,
+      customerFirstName: inspectionForm.customerFirstName,
+      customerLastName: inspectionForm.customerLastName,
+      customerPhone: inspectionForm.customerPhone,
+      customerEmail: inspectionForm.customerEmail,
+      municipality: inspectionForm.customerMunicipality || inspectionForm.municipality,
+      region: inspectionForm.region,
+      odometer: inspectionForm.odometer,
+      bay: inspectionForm.bay,
+      priority: inspectionForm.priority,
+      isReturnJob: inspectionForm.isReturnJob,
+      returnReason: inspectionForm.returnReason,
+      linkedPreviousRoId: inspectionForm.linkedPreviousRoId || undefined,
+      inspectionPhotos: inspectionForm.inspectionPhotos,
+      initialExteriorPhotos: inspectionForm.initialExteriorPhotos,
+      takeNotes: inspectionForm.takeNotes,
+      arrivalChecks: inspectionForm.arrivalChecks,
+      tireInspection: inspectionForm.tireInspection,
+      underHoodInspection: inspectionForm.underHoodInspection,
+      customerVisibleFindings: inspectionForm.customerVisibleFindings,
+      recommendationsSummary: inspectionForm.recommendationsSummary,
+      serviceAdvisorNotes: `${inspectionForm.serviceAdvisorNotes || ""}${inspectionForm.customerMunicipality ? `
+Municipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
+    };
+    recomputeAll(ros.map((ro) => (ro.id === editingVehicleIntakeRoId ? updatedRo : ro)), parts);
+    logActivity({ module: "Inspection", action: "Save Vehicle Intake Edit", recordReference: target.roNumber, oldValue: target, newValue: updatedRo });
+    setEditingVehicleIntakeRoId("");
+    setView("inspection");
+  };
+
   const createRO = () => {
     const nextRO: RepairOrder = {
       id: uid(),
-      roNumber: `RO-${Date.now()}`,
+      roNumber: generateStandardNumber("RO", ros.map((item) => item.roNumber)),
       plate: "",
       vehicle: "",
       vehicleMake: "",
       vehicleModel: "",
       vehicleYear: "",
+      fuelType: "",
+      transmissionType: "",
       customer: "",
+      customerFirstName: "",
+      customerLastName: "",
       customerPhone: "",
+      customerEmail: "",
+      municipality: "",
+      region: "",
       odometer: "",
       bay: "Bay 1",
       priority: "Normal",
@@ -1900,6 +3478,8 @@ export default function App() {
       initialExteriorPhotos: [],
       takeNotes: createDefaultTakeNotes(),
       arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS },
+      tireInspection: { ...DEFAULT_TIRE_INSPECTION },
+      underHoodInspection: { ...DEFAULT_UNDER_HOOD_INSPECTION },
       serviceAdvisorNotes: "",
       softLocked: false,
       lockOverrideReason: "",
@@ -1908,19 +3488,41 @@ export default function App() {
   };
 
   const createROFromInspection = () => {
+    if (
+      !inspectionForm.plate.trim() ||
+      !inspectionForm.vehicleYear.trim() ||
+      !inspectionForm.vehicleMake.trim() ||
+      !inspectionForm.vehicleModel.trim() ||
+      !inspectionForm.odometer.trim() ||
+      !inspectionForm.fuelType ||
+      !inspectionForm.transmissionType ||
+      !inspectionForm.customerPhone.trim()
+    ) {
+      alert("Complete the required Vehicle Intake fields first: plate, year, make, model, odometer, fuel type, transmission type, and phone number.");
+      setView("vehicleIntake");
+      return;
+    }
+
     const generatedWorkLines = buildWorkLinesFromInspection(inspectionForm.issues);
     const computedVehicle = buildInspectionVehicleLabel(inspectionForm);
 
     const nextRO: RepairOrder = {
       id: uid(),
-      roNumber: `RO-${Date.now()}`,
+      roNumber: generateStandardNumber("RO", ros.map((item) => item.roNumber)),
       plate: inspectionForm.plate,
       vehicle: computedVehicle,
       vehicleMake: inspectionForm.vehicleMake,
       vehicleModel: inspectionForm.vehicleModel,
       vehicleYear: inspectionForm.vehicleYear,
-      customer: inspectionForm.customer,
+      fuelType: inspectionForm.fuelType,
+      transmissionType: inspectionForm.transmissionType,
+      customer: buildCustomerDisplayName(inspectionForm),
+      customerFirstName: inspectionForm.customerFirstName,
+      customerLastName: inspectionForm.customerLastName,
       customerPhone: inspectionForm.customerPhone,
+      customerEmail: inspectionForm.customerEmail,
+      municipality: inspectionForm.municipality,
+      region: inspectionForm.region,
       odometer: inspectionForm.odometer,
       bay: inspectionForm.bay,
       priority: inspectionForm.priority,
@@ -1944,15 +3546,73 @@ export default function App() {
       initialExteriorPhotos: inspectionForm.initialExteriorPhotos,
       takeNotes: inspectionForm.takeNotes,
       arrivalChecks: inspectionForm.arrivalChecks,
-      serviceAdvisorNotes: inspectionForm.serviceAdvisorNotes,
+      tireInspection: inspectionForm.tireInspection,
+      underHoodInspection: inspectionForm.underHoodInspection,
+      serviceAdvisorNotes: `${inspectionForm.serviceAdvisorNotes || ""}${inspectionForm.customerMunicipality ? `\nMunicipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
       softLocked: false,
       lockOverrideReason: "",
     };
 
     recomputeAll([nextRO, ...ros], parts);
-    setInspectionForm({ ...DEFAULT_INSPECTION_FORM, takeNotes: createDefaultTakeNotes(), arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS } });
+    setInspectionForm({ ...DEFAULT_INSPECTION_FORM, takeNotes: createDefaultTakeNotes(), arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS }, tireInspection: { ...DEFAULT_TIRE_INSPECTION }, underHoodInspection: { ...DEFAULT_UNDER_HOOD_INSPECTION } });
+    localStorage.removeItem(DRAFT_KEYS.inspectionForm);
+    setDraftBanner("Inspection draft converted into a Repair Order.");
+    setTimeout(() => setDraftBanner(""), 3500);
     setView("approval");
   };
+
+  const applyInspectionMake = (make: string) => {
+    setInspectionForm((prev) => {
+      const nextModels = filterVehicleModels(vehicleCatalog, make, "", prev.vehicleYear);
+      const keepCurrentModel = nextModels.some(
+        (model) => model.toLowerCase() === prev.vehicleModel.trim().toLowerCase(),
+      );
+      return {
+        ...prev,
+        vehicleMake: make,
+        vehicleModel: keepCurrentModel ? prev.vehicleModel : "",
+      };
+    });
+  };
+
+  const applyInspectionModel = (model: string) => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      vehicleModel: model,
+    }));
+  };
+
+  const resetBundledVehicleCatalog = () => {
+    setVehicleCatalog(DEFAULT_PH_VEHICLE_CATALOG);
+    alert("Bundled Philippine-market vehicle catalog restored.");
+  };
+
+  const refreshVehicleCatalog = async () => {
+    if (!vehicleCatalogUrl.trim()) {
+      alert("Enter a catalog JSON URL first.");
+      return;
+    }
+
+    try {
+      setVehicleCatalogSyncing(true);
+      const response = await fetch(vehicleCatalogUrl.trim());
+      if (!response.ok) {
+        throw new Error(`Catalog refresh failed (${response.status})`);
+      }
+      const payload = await response.json();
+      const normalized = normalizeVehicleCatalogPayload(payload);
+      if (!normalized.length) {
+        throw new Error("No valid make/model records found in the fetched catalog.");
+      }
+      setVehicleCatalog(normalized);
+      alert(`Vehicle catalog refreshed successfully. ${normalized.length} make(s) loaded.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Vehicle catalog refresh failed.");
+    } finally {
+      setVehicleCatalogSyncing(false);
+    }
+  };
+
 
   const updateRO = (id: string, patch: Partial<RepairOrder>) => {
     const target = ros.find((r) => r.id === id);
@@ -2236,7 +3896,7 @@ export default function App() {
     const linkedRo = ros.find((ro) => ro.roNumber === roNumber);
     const nextPart: PartRequest = {
       id: uid(),
-      requestNumber: `PR-${Date.now()}`,
+      requestNumber: generateStandardNumber("PR", parts.map((item) => item.requestNumber)),
       roNumber,
       workLineId: wl?.id,
       workLineLabel: wl?.label,
@@ -2544,6 +4204,19 @@ export default function App() {
     }));
   };
 
+  const updateTireInspection = (
+    position: TirePosition,
+    patch: Partial<TireInspectionItem>,
+  ) => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      tireInspection: {
+        ...ensureTireInspectionMap(prev.tireInspection),
+        [position]: buildTireInspectionItem(ensureTireInspectionMap(prev.tireInspection)[position], patch),
+      },
+    }));
+  };
+
   const addWorkLinePhoto = (roId: string, workLineId: string) => {
     const nextRos = ros.map((ro) =>
       ro.id !== roId
@@ -2630,6 +4303,53 @@ export default function App() {
           },
     );
     setRos(nextRos);
+  };
+
+  const uploadPartRequestPhotoFiles = async (partId: string, files: FileList | null) => {
+    if (!files || !files.length) return;
+    const uploads = await Promise.all(
+      Array.from(files).map(async (file, index) => ({
+        id: uid(),
+        label: file.name || `Part Photo ${index + 1}`,
+        url: await fileToDataUrl(file),
+      })),
+    );
+    updatePart(partId, {
+      photos: [...(parts.find((p) => p.id === partId)?.photos || []), ...uploads],
+    });
+  };
+
+  const uploadPartReceivedPhotoFile = async (partId: string, file?: File | null) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    updatePart(partId, { receivedPhotoUrl: dataUrl });
+  };
+
+  const testSmsGatewayConnection = async () => {
+    if (!smsGatewaySettings.enabled || !smsGatewaySettings.endpoint.trim()) {
+      alert("Enter and enable the SMS gateway first.");
+      return;
+    }
+    try {
+      const response = await fetch(smsGatewaySettings.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(smsGatewaySettings.apiKey.trim()
+            ? { Authorization: `Bearer ${smsGatewaySettings.apiKey.trim()}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          device: smsGatewaySettings.deviceName.trim() || "Android Gateway",
+          to: "TEST",
+          message: "ChatGPT DVI SMS gateway test",
+          healthCheck: true,
+        }),
+      });
+      alert(response.ok ? "SMS gateway test request sent successfully." : `SMS gateway test failed (${response.status}).`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "SMS gateway test failed.");
+    }
   };
 
   const createSupplier = () => {
@@ -2794,7 +4514,7 @@ export default function App() {
     if (!ro) return;
     const financials = getROFinancials(ro);
     const primaryLine = ro.workLines.find((line) => line.primaryTechnician || line.technician);
-    const qcInspector = ro.qcChecklist?.inspector || "";
+    const qcInspector = ro.qcChecklist?.inspectedBy || "";
     const newBackJob: BackJobRecord = {
       id: uid(),
       reportDate: Date.now(),
@@ -2807,7 +4527,10 @@ export default function App() {
       initialConcern: ro.returnReason || ro.customerVisibleFindings || "Follow-up / Recheck",
       initialMechanic: primaryLine ? getPrimaryTechnicianName(primaryLine) : "",
       qcPerformedBy: qcInspector,
-      backJobInvoiceNumber: `BJ-${Date.now()}`,
+      backJobInvoiceNumber: generateStandardNumber(
+        "BJ",
+        backJobs.map((item) => item.backJobInvoiceNumber),
+      ),
       currentMechanic: primaryLine ? getPrimaryTechnicianName(primaryLine) : "",
       supportingMechanics: primaryLine ? getSupportingTechnicianNames(primaryLine) : [],
       backJobType: ro.isReturnJob ? "Repeat Issue" : "Follow-up / Recheck",
@@ -2868,6 +4591,7 @@ export default function App() {
     });
 
     setSalesForm((prev) => ({ ...DEFAULT_SALES_FORM, entryDate: prev.entryDate || DEFAULT_SALES_FORM.entryDate }));
+    localStorage.removeItem(DRAFT_KEYS.salesForm);
   };
 
   const loadSalesEntryToForm = (entry: SalesEntry) => {
@@ -2891,6 +4615,270 @@ export default function App() {
     });
   };
 
+  const startEmployeeEdit = (employee: EmployeeRecord) => {
+    setSelectedEmployeeId(employee.id);
+    setEmployeeForm({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      displayName: employee.displayName,
+      role: employee.role,
+      department: employee.department,
+      phone: employee.phone,
+      username: employee.username,
+      password: employee.password,
+      active: employee.active,
+      mustChangePassword: Boolean(employee.mustChangePassword),
+      allowedViews: employee.allowedViews,
+    });
+    setView("employees");
+  };
+
+  const resetEmployeeForm = () => {
+    setSelectedEmployeeId("");
+    setEmployeeForm(DEFAULT_EMPLOYEE_FORM);
+    localStorage.removeItem(DRAFT_KEYS.employeeForm);
+  };
+
+  const saveEmployee = () => {
+    if (!employeeForm.employeeCode.trim() || !employeeForm.displayName.trim() || !employeeForm.username.trim() || !employeeForm.password.trim()) {
+      alert("Employee code, display name, username, and password are required.");
+      return;
+    }
+    const duplicateUsername = employees.find(
+      (employee) => employee.username.trim().toLowerCase() === employeeForm.username.trim().toLowerCase() && employee.id !== selectedEmployeeId,
+    );
+    if (duplicateUsername) {
+      alert("Username already exists. Use a different username.");
+      return;
+    }
+
+    const payload = normalizeEmployeeRecord({
+      id: selectedEmployeeId || uid(),
+      employeeCode: employeeForm.employeeCode,
+      firstName: employeeForm.firstName,
+      lastName: employeeForm.lastName,
+      displayName: employeeForm.displayName,
+      role: employeeForm.role,
+      department: employeeForm.department,
+      phone: employeeForm.phone,
+      username: employeeForm.username,
+      password: employeeForm.password,
+      active: employeeForm.active,
+      mustChangePassword: employeeForm.mustChangePassword,
+      allowedViews: employeeForm.allowedViews,
+      createdAt: employees.find((employee) => employee.id === selectedEmployeeId)?.createdAt || Date.now(),
+    }, employees.length);
+
+    setEmployees((prev) => {
+      const next = selectedEmployeeId ? prev.map((employee) => (employee.id === selectedEmployeeId ? payload : employee)) : [payload, ...prev];
+      return next;
+    });
+    if (payload.role === "Technician" || payload.role === "Mechanic") {
+      setTechnicians((prev) => {
+        const existing = prev.find((tech) => tech.name.trim().toLowerCase() === payload.displayName.trim().toLowerCase());
+        if (existing) {
+          return prev.map((tech) =>
+            tech.id === existing.id
+              ? { ...tech, name: payload.displayName, role: mapEmployeeToTechnicianRole(payload.role) }
+              : tech,
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: `tech-${payload.id}`,
+            name: payload.displayName,
+            role: mapEmployeeToTechnicianRole(payload.role),
+            clockedIn: false,
+            currentRoNumber: "",
+            currentWorkLine: "",
+            completedJobs: 0,
+          },
+        ];
+      });
+    }
+    logActivity({ module: "Activity Logs", action: selectedEmployeeId ? "Update Employee" : "Create Employee", recordReference: payload.employeeCode, newValue: payload });
+    resetEmployeeForm();
+  };
+
+  const toggleEmployeeActive = (employeeId: string) => {
+    const target = employees.find((employee) => employee.id === employeeId);
+    if (!target) return;
+    setEmployees((prev) => prev.map((employee) => employee.id === employeeId ? { ...employee, active: !employee.active } : employee));
+    if (user?.id === employeeId && target.active) {
+      setUser({ ...target, active: false });
+    }
+  };
+
+  const handleLogin = () => {
+    const matched = employees.find((employee) => employee.username.trim().toLowerCase() === loginUsername.trim().toLowerCase() && employee.password === loginPassword);
+    if (!matched) {
+      setLoginError("Invalid username or password.");
+      return;
+    }
+    if (!matched.active) {
+      setLoginError("This employee account is inactive.");
+      return;
+    }
+    try { localStorage.removeItem(DRAFT_KEYS.view); } catch {}
+    setView("vehicleIntake");
+    setUser(matched);
+    setLoginError("");
+  };
+
+  const quickLoginAs = (employee: EmployeeRecord) => {
+    setLoginUsername(employee.username);
+    setLoginPassword(employee.password);
+    try { localStorage.removeItem(DRAFT_KEYS.view); } catch {}
+    setView("vehicleIntake");
+    setUser(employee);
+    setLoginError("");
+  };
+
+  const getVisibleViews = (currentUser: User | null): ViewKey[] => {
+    if (!currentUser) return [];
+    return currentUser.allowedViews?.length ? currentUser.allowedViews : getDefaultAllowedViewsForRole(currentUser.role);
+  };
+
+  const getAttendanceRecord = (employeeId: string, date = attendanceBoardDate) =>
+    attendanceRecords.find((record) => record.employeeId === employeeId && record.date === date);
+
+  const syncTechnicianClockFromAttendance = (employee: EmployeeRecord, nextRecord: AttendanceRecord) => {
+    if (!(employee.role === "Technician" || employee.role === "Mechanic")) return;
+    setTechnicians((prev) =>
+      prev.map((tech) =>
+        tech.name.trim().toLowerCase() === employee.displayName.trim().toLowerCase()
+          ? {
+              ...tech,
+              role: mapEmployeeToTechnicianRole(employee.role),
+              clockedIn: Boolean(nextRecord.checkInTime && !nextRecord.checkOutTime && ["Present", "Late", "Half Day"].includes(nextRecord.status)),
+            }
+          : tech,
+      ),
+    );
+  };
+
+  const upsertAttendanceRecord = (
+    employee: EmployeeRecord,
+    patch: Partial<AttendanceRecord>,
+    options?: { actionLabel?: string; note?: string },
+  ) => {
+    const existing = getAttendanceRecord(employee.id, attendanceBoardDate);
+    const nextRecord: AttendanceRecord = {
+      id: existing?.id || uid(),
+      employeeId: employee.id,
+      date: attendanceBoardDate,
+      status: patch.status || existing?.status || "Present",
+      checkInTime: patch.checkInTime !== undefined ? patch.checkInTime : existing?.checkInTime,
+      checkOutTime: patch.checkOutTime !== undefined ? patch.checkOutTime : existing?.checkOutTime,
+      note: patch.note !== undefined ? patch.note : existing?.note || "",
+      encodedBy: user?.displayName || user?.username || existing?.encodedBy || "System",
+    };
+    setAttendanceRecords((prev) => {
+      const withoutCurrent = prev.filter((record) => !(record.employeeId === employee.id && record.date === attendanceBoardDate));
+      return [nextRecord, ...withoutCurrent];
+    });
+    syncTechnicianClockFromAttendance(employee, nextRecord);
+    if (options?.actionLabel) {
+      logActivity({
+        module: "Activity Logs",
+        action: options.actionLabel,
+        recordReference: `${employee.displayName} • ${attendanceBoardDate}`,
+        newValue: nextRecord,
+        note: options.note,
+      });
+    }
+  };
+
+  const handleEmployeeCheckIn = (employee: EmployeeRecord) => {
+    const existing = getAttendanceRecord(employee.id, attendanceBoardDate);
+    upsertAttendanceRecord(
+      employee,
+      {
+        status: existing?.status === "Late" ? "Late" : "Present",
+        checkInTime: existing?.checkInTime || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        checkOutTime: existing?.status === "Absent" || existing?.status === "On Leave" ? undefined : existing?.checkOutTime,
+      },
+      { actionLabel: "Employee Check In" },
+    );
+  };
+
+  const handleEmployeeCheckOut = (employee: EmployeeRecord) => {
+    const existing = getAttendanceRecord(employee.id, attendanceBoardDate);
+    if (!existing?.checkInTime) {
+      handleEmployeeCheckIn(employee);
+      return;
+    }
+    upsertAttendanceRecord(
+      employee,
+      {
+        status: existing.status || "Present",
+        checkOutTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      },
+      { actionLabel: "Employee Check Out" },
+    );
+  };
+
+  const setEmployeeAttendanceStatus = (employee: EmployeeRecord, status: AttendanceStatus) => {
+    const existing = getAttendanceRecord(employee.id, attendanceBoardDate);
+    const nextPatch: Partial<AttendanceRecord> = {
+      status,
+      note: existing?.note || "",
+    };
+    if (status === "Present" || status === "Late" || status === "Half Day") {
+      nextPatch.checkInTime = existing?.checkInTime || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (status !== "Half Day") nextPatch.checkOutTime = existing?.checkOutTime;
+    } else {
+      nextPatch.checkInTime = undefined;
+      nextPatch.checkOutTime = undefined;
+    }
+    upsertAttendanceRecord(employee, nextPatch, { actionLabel: "Attendance Status Update", note: status });
+  };
+
+  const updateAttendanceNote = (employee: EmployeeRecord, note: string) => {
+    upsertAttendanceRecord(employee, { note, status: getAttendanceRecord(employee.id, attendanceBoardDate)?.status || "Absent" });
+  };
+
+  const applyAllowedViewPreset = (role: UserRole) => {
+    setEmployeeForm((prev) => ({ ...prev, allowedViews: getDefaultAllowedViewsForRole(role) }));
+  };
+
+  const exportSystemBackup = () => {
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      buildVersion: BUILD_VERSION,
+      ros,
+      parts,
+      backJobs,
+      activityLogs,
+      salesEntries,
+      technicians,
+      suppliers,
+      supplierBids,
+      inventory,
+      employees,
+      attendanceRecords,
+      inspectionDraft: inspectionForm,
+      employeeForm,
+      paymentForms,
+      supplierForm,
+      bidForms,
+      inventoryForm,
+      salesForm,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dvi-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setDraftBanner("System backup exported.");
+    setTimeout(() => setDraftBanner(""), 3500);
+  };
+
   /* =========================
      DERIVED
   ========================= */
@@ -2907,6 +4895,7 @@ export default function App() {
       readyRelease: ros.filter((r) => r.status === "Ready Release").length,
       released: ros.filter((r) => r.status === "Released").length,
       closed: ros.filter((r) => r.status === "Closed").length,
+      completed: ros.filter((r) => r.status === "Closed").length,
       returnJobs: ros.filter((r) => r.isReturnJob).length,
       backJobs: backJobs.length,
     }),
@@ -2976,6 +4965,7 @@ export default function App() {
   const statusPipeline = useMemo(
     () => ({
       draft: ros.filter((r) => r.status === "Draft").length,
+      open: ros.filter((r) => r.status === "Draft").length,
       waitingInspection: ros.filter((r) => r.status === "Waiting Inspection").length,
       waitingApproval: ros.filter((r) => r.status === "Waiting Approval").length,
       readyToWork: ros.filter((r) => r.status === "Approved / Ready to Work").length,
@@ -3237,7 +5227,283 @@ export default function App() {
     );
   }, [customerHistory, historySearch]);
 
+
+  const plateLookupMatches = useMemo(() => {
+    const plateQuery = inspectionForm.plate.trim().toLowerCase();
+    if (!plateQuery) return [] as RepairOrder[];
+    return ros
+      .filter((ro) => String(ro.plate || "").trim().toLowerCase().includes(plateQuery))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 8);
+  }, [inspectionForm.plate, ros]);
+
+  const customerLookupMatches = useMemo(() => {
+    const customerQuery = [inspectionForm.customer, inspectionForm.customerFirstName, inspectionForm.customerLastName, inspectionForm.customerPhone]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!customerQuery) return [] as RepairOrder[];
+    return ros
+      .filter((ro) => buildCustomerLookupText(ro).toLowerCase().includes(customerQuery))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 8);
+  }, [inspectionForm.customer, inspectionForm.customerFirstName, inspectionForm.customerLastName, inspectionForm.customerPhone, ros]);
+
+  const masterDataSnapshot = useMemo(() => ({
+    plates: Array.from(new Set(ros.map((ro) => String(ro.plate || "").trim()).filter(Boolean))).sort(),
+    customers: Array.from(new Set(ros.map((ro) => String(ro.customer || "").trim()).filter(Boolean))).sort(),
+    vehicles: Array.from(new Set(ros.map((ro) => String(ro.vehicle || "").trim()).filter(Boolean))).sort(),
+    suppliers: suppliers.map((item) => item.name),
+    inventoryItems: inventory.map((item) => item.partName),
+    activeEmployees: employees.filter((employee) => employee.active).map((employee) => employee.displayName),
+  }), [ros, suppliers, inventory, employees]);
+
+  const attendanceMapForBoardDate = useMemo(() => {
+    return attendanceRecords
+      .filter((record) => record.date === attendanceBoardDate)
+      .reduce<Record<string, AttendanceRecord>>((acc, record) => {
+        acc[record.employeeId] = record;
+        return acc;
+      }, {});
+  }, [attendanceRecords, attendanceBoardDate]);
+
+  const employeeDirectory = useMemo(() => {
+    return employees.reduce<Record<string, EmployeeRecord>>((acc, employee) => {
+      acc[employee.id] = employee;
+      return acc;
+    }, {});
+  }, [employees]);
+
+  const filteredEmployees = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase();
+    return employees
+      .filter((employee) => {
+        if (!q) return true;
+        return [employee.displayName, employee.employeeCode, employee.username, employee.role, employee.department]
+          .some((value) => value.toLowerCase().includes(q));
+      })
+      .filter((employee) => {
+        if (attendanceStatusFilter === "All") return true;
+        return (attendanceMapForBoardDate[employee.id]?.status || "Absent") === attendanceStatusFilter;
+      })
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [employees, employeeSearch, attendanceStatusFilter, attendanceMapForBoardDate]);
+
+  const attendanceBoardSummary = useMemo(() => {
+    const records = employees.map((employee) => attendanceMapForBoardDate[employee.id]).filter(Boolean) as AttendanceRecord[];
+    return {
+      present: records.filter((record) => record.status === "Present").length,
+      late: records.filter((record) => record.status === "Late").length,
+      halfDay: records.filter((record) => record.status === "Half Day").length,
+      onLeave: records.filter((record) => record.status === "On Leave").length,
+      checkedOut: records.filter((record) => Boolean(record.checkOutTime)).length,
+    };
+  }, [employees, attendanceMapForBoardDate]);
+
+  const technicianEmployeeSummary = useMemo(() => {
+    const technicianEmployees = employees.filter((employee) => employee.role === "Technician" || employee.role === "Mechanic");
+    const todaysMap = attendanceRecords
+      .filter((record) => record.date === getTodayDateString())
+      .reduce<Record<string, AttendanceRecord>>((acc, record) => {
+        acc[record.employeeId] = record;
+        return acc;
+      }, {});
+    return {
+      total: technicianEmployees.length,
+      present: technicianEmployees.filter((employee) => {
+        const status = todaysMap[employee.id]?.status;
+        return status === "Present" || status === "Late" || status === "Half Day";
+      }).length,
+      checkedOut: technicianEmployees.filter((employee) => Boolean(todaysMap[employee.id]?.checkOutTime)).length,
+    };
+  }, [employees, attendanceRecords]);
+
+  const renderSafeCurrentView = () => {
+    try {
+      if (view === "dashboard") return DashboardView();
+      if (view === "vehicleIntake") return VehicleIntakeView();
+      if (view === "inspection") return InspectionView();
+      if (view === "approval") return ApprovalView();
+      if (view === "ro") return ROView();
+      if (view === "parts") return PartsView();
+      if (view === "shop") return ShopView();
+      if (view === "tech") return TechView();
+      if (view === "billing") return BillingView();
+      if (view === "customerSummary") return CustomerSummaryView();
+      if (view === "history") return HistoryView();
+      if (view === "backJob") return BackJobView();
+      if (view === "activityLogs") return ActivityLogsView();
+      if (view === "salesReports") return SalesReportsView();
+      if (view === "purchasing") return PurchasingView();
+      if (view === "inventory") return InventoryView();
+      if (view === "employees") return EmployeeView();
+      return VehicleIntakeView();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return (
+        <div style={{ ...styles.cardBlock, border: "1px solid #fecaca", background: "#fef2f2" }}>
+          <div style={{ fontWeight: 800, color: "#991b1b", marginBottom: 8 }}>View render error</div>
+          <div style={{ color: "#7f1d1d", fontSize: 14, marginBottom: 12 }}>Current view: {VIEW_TITLES[view]?.title || view}</div>
+          <div style={{ color: "#7f1d1d", fontSize: 13, whiteSpace: "pre-wrap", marginBottom: 12 }}>{message}</div>
+          <div style={styles.wrapRow}>
+            <button style={styles.primaryButton} onClick={() => setView("vehicleIntake")}>Open Vehicle Intake</button>
+            <button style={styles.secondaryButton} onClick={() => setView("inspection")}>Open Inspection</button>
+            <button style={styles.secondaryButton} onClick={clearDraftRecovery}>Clear Drafts</button>
+          </div>
+        </div>
+      );
+    }
+  };
+
   const currentViewMeta = VIEW_TITLES[view] || { title: "Workspace", subtitle: "Manage your workshop operations." };
+  const visibleViews = getVisibleViews(user);
+  const isAdmin = user?.role === "Admin";
+  const canManageEmployees = Boolean(user && ["Admin", "Management", "Manager", "Assistant Manager"].includes(user.role));
+  const canManageAttendance = Boolean(user && ["Admin", "Management", "Manager", "Assistant Manager", "Service Advisor", "Office Staff", "Reception"].includes(user.role));
+  const canManagePermissions = Boolean(user && user.role === "Admin");
+
+  useEffect(() => {
+    if (user && !canAccessViewForUser(user, view)) {
+      const fallbackView = visibleViews[0] || "dashboard";
+      if (fallbackView !== view) setView(fallbackView);
+    }
+  }, [user, view, visibleViews]);
+
+  const isPhone = viewportWidth <= 768;
+  const isTablet = viewportWidth > 768 && viewportWidth <= 1100;
+  const isCompact = viewportWidth <= 1100;
+  const safeTireInspection = ensureTireInspectionMap(inspectionForm?.tireInspection);
+
+  const getTireIndicatorButtonStyle = (position: TirePosition, selected: boolean, editableDiagram: boolean): React.CSSProperties => {
+    const tire = safeTireInspection[position];
+    const treadAssessment = getTreadDepthAssessment(tire.treadDepthMm);
+    return {
+      position: "absolute",
+      width: isPhone ? 74 : 86,
+      minHeight: isPhone ? 72 : 82,
+      borderRadius: 18,
+      border: `2px solid ${selected ? treadAssessment.border : "rgba(148, 163, 184, 0.55)"}`,
+      background: selected ? treadAssessment.background : "rgba(255,255,255,0.94)",
+      boxShadow: selected ? `0 0 0 3px ${treadAssessment.border}22` : "0 10px 22px rgba(15, 23, 42, 0.08)",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+      cursor: editableDiagram ? "pointer" : "default",
+      color: treadAssessment.text,
+      fontWeight: 800,
+      padding: "8px 6px",
+      transition: "all 0.18s ease",
+    };
+  };
+
+  const renderTireVehicleDiagram = (editableDiagram = false) => {
+    const positions: { position: TirePosition; top: string; left?: string; right?: string }[] = [
+      { position: "frontLeft", top: "12%", left: isPhone ? "2%" : "5%" },
+      { position: "frontRight", top: "12%", right: isPhone ? "2%" : "5%" },
+      { position: "rearLeft", top: "68%", left: isPhone ? "2%" : "5%" },
+      { position: "rearRight", top: "68%", right: isPhone ? "2%" : "5%" },
+    ];
+
+    return (
+      <div style={{ ...styles.innerBlock, padding: isPhone ? 14 : 18 }}>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>Vehicle Tire Illustration</div>
+        <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>
+          {editableDiagram ? "Click a tire indicator to jump to that tire's inspection details." : "Visual tire status from Vehicle Intake."}
+        </div>
+        <div
+          style={{
+            position: "relative",
+            maxWidth: 460,
+            width: "100%",
+            height: isPhone ? 320 : 360,
+            margin: "0 auto",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: "8%",
+              bottom: "8%",
+              left: "22%",
+              right: "22%",
+              borderRadius: 36,
+              background: "linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 48%, #e2e8f0 100%)",
+              border: "2px solid #94a3b8",
+              boxShadow: "inset 0 0 0 6px rgba(255,255,255,0.42)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "12%",
+              left: "34%",
+              right: "34%",
+              height: isPhone ? 54 : 60,
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.52)",
+              border: "1px solid rgba(148, 163, 184, 0.7)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              bottom: "12%",
+              left: "34%",
+              right: "34%",
+              height: isPhone ? 54 : 60,
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.52)",
+              border: "1px solid rgba(148, 163, 184, 0.7)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "28%",
+              bottom: "28%",
+              left: "44%",
+              right: "44%",
+              borderRadius: 999,
+              background: "rgba(148, 163, 184, 0.24)",
+            }}
+          />
+
+          {positions.map(({ position, top, left, right }) => {
+            const tire = safeTireInspection[position];
+            const treadAssessment = getTreadDepthAssessment(tire.treadDepthMm);
+            const selected = selectedTirePosition === position;
+            return (
+              <button
+                key={position}
+                type="button"
+                title={`${TIRE_POSITION_LABELS[position]} • ${tire.condition} • ${tire.treadDepthMm || "No depth"} • ${treadAssessment.label}${tire.unsafe ? " • Unsafe" : ""}`}
+                onClick={() => editableDiagram && setSelectedTirePosition(position)}
+                style={{
+                  ...getTireIndicatorButtonStyle(position, selected, editableDiagram),
+                  top,
+                  left,
+                  right,
+                }}
+              >
+                <span style={{ fontSize: 11, letterSpacing: 0.4 }}>{TIRE_POSITION_SHORT_LABELS[position]}</span>
+                <span style={{ fontSize: 11, lineHeight: 1.1 }}>{tire.treadDepthMm.trim() ? `${tire.treadDepthMm.trim()} mm` : "--"}</span>
+                <span style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: treadAssessment.border,
+                  boxShadow: tire.unsafe ? `0 0 0 4px ${treadAssessment.border}33` : "none",
+                }} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   /* =========================
      VIEWS
@@ -3456,6 +5722,86 @@ export default function App() {
 
       <div style={{ ...styles.shopGrid, marginTop: 16 }}>
         <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Phase 16A Integration Center</div>
+          <div style={{ color: "#6b7280", marginBottom: 12 }}>
+            Frontend-real integrations for Android SMS gateway, file uploads saved in-app, and email compose flow.
+          </div>
+
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>SMS Gateway</div>
+          <div style={styles.formGrid}>
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={smsGatewaySettings.enabled}
+                onChange={(e) => setSmsGatewaySettings((prev) => ({ ...prev, enabled: e.target.checked }))}
+              />
+              <span>Enable SMS gateway</span>
+            </label>
+            <input
+              style={styles.input}
+              placeholder="Gateway Endpoint URL"
+              value={smsGatewaySettings.endpoint}
+              onChange={(e) => setSmsGatewaySettings((prev) => ({ ...prev, endpoint: e.target.value }))}
+            />
+            <input
+              style={styles.input}
+              placeholder="Gateway API Key"
+              value={smsGatewaySettings.apiKey}
+              onChange={(e) => setSmsGatewaySettings((prev) => ({ ...prev, apiKey: e.target.value }))}
+            />
+            <input
+              style={styles.input}
+              placeholder="Device Name"
+              value={smsGatewaySettings.deviceName}
+              onChange={(e) => setSmsGatewaySettings((prev) => ({ ...prev, deviceName: e.target.value }))}
+            />
+          </div>
+          <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={smsGatewaySettings.useClipboardFallback}
+                onChange={(e) => setSmsGatewaySettings((prev) => ({ ...prev, useClipboardFallback: e.target.checked }))}
+              />
+              <span>Clipboard fallback</span>
+            </label>
+            <button style={styles.secondaryButton} onClick={() => void testSmsGatewayConnection()}>
+              <MessageSquare size={14} /> Test SMS Gateway
+            </button>
+          </div>
+
+          <div style={{ fontWeight: 600, marginTop: 16, marginBottom: 8 }}>Email Flow</div>
+          <div style={{ color: "#374151", fontSize: 14 }}>
+            Customer Summary currently uses a real email compose flow with <strong>mailto:</strong>. Clicking
+            <strong> Send via Email</strong> opens the user’s email client with a prefilled subject and body.
+          </div>
+
+          <div style={{ fontWeight: 600, marginTop: 16, marginBottom: 8 }}>File Uploads</div>
+          <div style={{ color: "#374151", fontSize: 14 }}>
+            Inspection photos, workline photos, and parts photos now support real file selection and are stored directly
+            in the app as data URLs for local use.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Auto-Save + Recovery</div>
+          <div style={{ color: "#6b7280", marginBottom: 10 }}>
+            Draft forms now save automatically and recover after refresh or crash.
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={styles.shopMiniRow}><span>Inspection Draft</span><strong>{inspectionForm.plate || "Empty"}</strong></div>
+            <div style={styles.shopMiniRow}><span>Last Auto-Save</span><strong>{lastAutoSavedAt ? new Date(lastAutoSavedAt).toLocaleTimeString() : "Not yet"}</strong></div>
+            <div style={styles.shopMiniRow}><span>Recovery State</span><strong>{draftBanner ? "Recovered / Active" : "Normal"}</strong></div>
+          </div>
+          <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+            <button style={styles.secondaryButton} onClick={exportSystemBackup}>Export Backup</button>
+            <button style={styles.secondaryButton} onClick={clearDraftRecovery}>Clear Drafts</button>
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>Manager Alerts</div>
           <div style={{ display: "grid", gap: 8 }}>
             {managerAlerts.length === 0 ? (
@@ -3480,305 +5826,900 @@ export default function App() {
   );
 
 
-  const InspectionView = () => (
-    <div>
-      <div style={styles.rowBetween}>
-        <div>
-          <h2 style={styles.heading}>Inspection Recovery Workflow</h2>
-          <div style={{ color: "#6b7280", marginTop: -8 }}>
-            Plate first, vehicle details next, arrival checks, take notes, then optional customer details.
+
+  const VehicleIntakeView = () => {
+  const suggestedMunicipalities = getMunicipalitySuggestions(inspectionForm.municipalityGroup || "", inspectionForm.customerMunicipality || "");
+  const intakeValidation = getVehicleIntakeValidation(inspectionForm);
+    const suggestedMakes = filterVehicleMakes(vehicleCatalog, inspectionForm.vehicleMake).slice(0, 10);
+    const suggestedModels = filterVehicleModels(
+      vehicleCatalog,
+      inspectionForm.vehicleMake,
+      inspectionForm.vehicleModel,
+      inspectionForm.vehicleYear,
+    ).slice(0, 12);
+    const suggestedTowns = getSuggestedMunicipalities(inspectionForm.region, inspectionForm.municipality).slice(0, 12);
+    const tireInspectionSummary = getTireInspectionSummary(safeTireInspection);
+    const requiredArrivalAttentionCount = (Object.keys(inspectionForm.arrivalChecks) as ArrivalCheckKey[]).filter(
+      (key) => inspectionForm.arrivalChecks[key].status === "Needs Attention",
+    ).length;
+    const requiredReady =
+      !!inspectionForm.plate.trim() &&
+      !!inspectionForm.vehicleYear.trim() &&
+      !!inspectionForm.vehicleMake.trim() &&
+      !!inspectionForm.vehicleModel.trim() &&
+      !!inspectionForm.odometer.trim() &&
+      !!inspectionForm.fuelType &&
+      !!inspectionForm.transmissionType &&
+      !!inspectionForm.customerPhone.trim();
+
+    return (
+      <div>
+        {isCompact && (
+          <div style={{ ...styles.cardBlock, marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Mobile / Tablet Tips</div>
+            <div style={{ color: "#64748b", fontSize: 13 }}>Fields are now arranged to stack better on smaller screens. Complete required intake fields first, then proceed to Inspection.</div>
+          </div>
+        )}
+        <div style={styles.rowBetween}>
+          <div>
+            <h2 style={styles.heading}>Vehicle Intake</h2>
+            <div style={{ color: "#6b7280", marginTop: -8 }}>
+              Complete the required vehicle details here first. Service advisors can finish the rest later.
+            </div>
+          </div>
+          <div style={styles.wrapRow}>
+            {editingVehicleIntakeRoId ? (
+              <>
+                <button style={styles.secondaryButton} onClick={cancelVehicleIntakeEdit}>
+                  Cancel Edit Mode
+                </button>
+                <button style={styles.primaryButton} onClick={saveVehicleIntakeEdit}>
+                  Save Vehicle Intake Changes
+                </button>
+              </>
+            ) : (
+              <button style={styles.primaryButton} onClick={() => setView("inspection")}>
+                Continue to Inspection
+              </button>
+            )}
           </div>
         </div>
-        <button style={styles.primaryButton} onClick={createROFromInspection}>
-          Generate RO from Inspection
-        </button>
-      </div>
 
-      <div style={styles.cardBlock}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>1. Vehicle Identification</div>
-        <div style={styles.formGrid}>
-          <input
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Required Vehicle Details</div>
+            <div style={styles.wrapRow}>
+              {editingVehicleIntakeRoId ? <span style={styles.badgePurple}>Edit Mode Active</span> : <span style={styles.badgeBlue}>New Intake</span>}
+              <span style={styles.badgeMuted}>Rules: {MODULE_BEHAVIOR_RULES.vehicleIntake.allowInlineEdit ? "Editable" : "Locked"} • Lookup {MODULE_BEHAVIOR_RULES.vehicleIntake.supportsLookup ? "Enabled" : "Disabled"}</span>
+            </div>
+          </div>
+          <div style={styles.formGrid}>
+            <input
+              style={styles.input}
+              placeholder="Plate Number *"
+              autoFocus
+              value={inspectionForm.plate}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, plate: e.target.value.toUpperCase() }))}
+            />
+            <input
+              style={styles.input}
+              placeholder="Year *"
+              value={inspectionForm.vehicleYear}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleYear: e.target.value }))}
+            />
+            <input
+              style={styles.input}
+              placeholder="Make *"
+              list="vehicle-intake-make-options"
+              value={inspectionForm.vehicleMake}
+              onChange={(e) => applyInspectionMake(e.target.value)}
+            />
+            <input
+              style={styles.input}
+              placeholder="Model *"
+              list="vehicle-intake-model-options"
+              value={inspectionForm.vehicleModel}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleModel: e.target.value }))}
+            />
+            <input
+              style={styles.input}
+              placeholder="Odometer *"
+              value={inspectionForm.odometer}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, odometer: e.target.value }))}
+            />
+            <select
+              style={styles.input}
+              value={inspectionForm.fuelType}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, fuelType: e.target.value as FuelType | "" }))}
+            >
+              <option value="">Fuel Type *</option>
+              {["Gasoline", "Diesel", "Hybrid", "Electric", "LPG", "Other"].map((fuel) => (
+                <option key={fuel} value={fuel}>{fuel}</option>
+              ))}
+            </select>
+            <select
+              style={styles.input}
+              value={inspectionForm.transmissionType}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, transmissionType: e.target.value as TransmissionType | "" }))}
+            >
+              <option value="">Transmission Type *</option>
+              {["MT", "AT", "CVT", "DCT", "Other"].map((transmission) => (
+                <option key={transmission} value={transmission}>{transmission}</option>
+              ))}
+            </select>
+            <input
+              style={styles.input}
+              placeholder="Phone Number *"
+              value={inspectionForm.customerPhone}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, customerPhone: e.target.value }))}
+            />
+          </div>
+
+          <datalist id="vehicle-intake-make-options">
+            {suggestedMakes.map((entry) => <option key={entry.make} value={entry.make} />)}
+          </datalist>
+          <datalist id="vehicle-intake-model-options">
+            {suggestedModels.map((model) => <option key={model} value={model} />)}
+          </datalist>
+
+          <div style={{ ...styles.shopGrid, marginTop: 14 }}>
+            <div style={styles.innerBlock}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Suggested Makes</div>
+              <div style={styles.wrapRow}>
+                {suggestedMakes.map((entry) => (
+                  <button
+                    key={entry.make}
+                    type="button"
+                    style={inspectionForm.vehicleMake.trim().toLowerCase() === entry.make.toLowerCase() ? styles.primaryButton : styles.secondaryButton}
+                    onClick={() => applyInspectionMake(entry.make)}
+                  >
+                    {entry.make}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.innerBlock}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Suggested Models</div>
+              <div style={styles.wrapRow}>
+                {suggestedModels.map((model) => (
+                  <button
+                    key={model}
+                    type="button"
+                    style={inspectionForm.vehicleModel.trim().toLowerCase() === model.toLowerCase() ? styles.primaryButton : styles.secondaryButton}
+                    onClick={() => applyInspectionModel(model)}
+                  >
+                    {model}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, ...styles.summaryRow }}>
+            <span style={requiredReady ? styles.badgeGood : styles.badgeWarn}>
+              {requiredReady ? "Required intake complete" : "Missing required intake fields"}
+            </span>
+            <span style={styles.badgeBlue}>Preview: {buildInspectionVehicleLabel(inspectionForm) || "No vehicle yet"}</span>
+          </div>
+
+          <div style={{ ...styles.shopGrid, marginTop: 14 }}>
+            <div style={styles.innerBlock}>
+              <div style={styles.rowBetween}>
+                <div style={{ fontWeight: 700 }}>Plate Lookup</div>
+                <span style={styles.badgeMuted}>{plateLookupMatches.length} match{plateLookupMatches.length === 1 ? "" : "es"}</span>
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 13, margin: "6px 0 10px" }}>Type a plate number to pull the latest vehicle and service history into intake without losing focus.</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {plateLookupMatches.length ? plateLookupMatches.map((ro) => (
+                  <div key={`plate-${ro.id}`} style={styles.lookupCard}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{ro.plate || "No Plate"} • {ro.vehicle || "No Vehicle"}</div>
+                      <div style={{ color: "#6b7280", fontSize: 12 }}>{ro.roNumber} • {ro.customer || "No Customer"} • {new Date(ro.createdAt).toLocaleDateString()}</div>
+                    </div>
+                    <div style={styles.wrapRow}>
+                      <button type="button" style={styles.secondaryButton} onClick={() => applyLookupRecordToIntake(ro, "fill")}>Use Record</button>
+                      <button type="button" style={styles.secondaryButton} onClick={() => startVehicleIntakeEditFromRO(ro.id)}>Edit Existing</button>
+                    </div>
+                  </div>
+                )) : <div style={{ color: "#6b7280", fontSize: 13 }}>No plate matches yet.</div>}
+              </div>
+            </div>
+
+            <div style={styles.innerBlock}>
+              <div style={styles.rowBetween}>
+                <div style={{ fontWeight: 700 }}>Customer Lookup</div>
+                <span style={styles.badgeMuted}>{customerLookupMatches.length} match{customerLookupMatches.length === 1 ? "" : "es"}</span>
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 13, margin: "6px 0 10px" }}>Search by name or phone to pull previous customer details and linked vehicles.</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {customerLookupMatches.length ? customerLookupMatches.map((ro) => (
+                  <div key={`customer-${ro.id}`} style={styles.lookupCard}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{ro.customer || "No Customer"}</div>
+                      <div style={{ color: "#6b7280", fontSize: 12 }}>{ro.customerPhone || "No Phone"} • {ro.plate || "No Plate"} • {ro.vehicle || "No Vehicle"}</div>
+                    </div>
+                    <div style={styles.wrapRow}>
+                      <button type="button" style={styles.secondaryButton} onClick={() => applyLookupRecordToIntake(ro, "fill")}>Use Record</button>
+                      <button type="button" style={styles.secondaryButton} onClick={() => startVehicleIntakeEditFromRO(ro.id)}>Edit Existing</button>
+                    </div>
+                  </div>
+                )) : <div style={{ color: "#6b7280", fontSize: 13 }}>No customer matches yet.</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Customer Details (can be completed later by Service Advisors)</div>
+          <div style={styles.formGrid}>
+          <select
             style={styles.input}
-            placeholder="Plate Number"
-            autoFocus
-            value={inspectionForm.plate}
+            value={inspectionForm.customerType || "Person"}
             onChange={(e) =>
-              setInspectionForm((p) => ({ ...p, plate: e.target.value.toUpperCase() }))
+              setInspectionForm((p) => ({
+                ...p,
+                customerType: e.target.value as "Person" | "Company",
+              }))
             }
-          />
-          <input
-            style={styles.input}
-            placeholder="Make"
-            value={inspectionForm.vehicleMake}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleMake: e.target.value }))}
-          />
-          <input
-            style={styles.input}
-            placeholder="Model"
-            value={inspectionForm.vehicleModel}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleModel: e.target.value }))}
-          />
-          <input
-            style={styles.input}
-            placeholder="Year"
-            value={inspectionForm.vehicleYear}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicleYear: e.target.value }))}
-          />
-          <input
-            style={styles.input}
-            placeholder="Fallback Vehicle Description"
-            value={inspectionForm.vehicle}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, vehicle: e.target.value }))}
-          />
-        </div>
-        <div style={{ marginTop: 10, color: "#374151", fontSize: 14 }}>
-          <strong>Preview:</strong> {buildInspectionVehicleLabel(inspectionForm) || "No vehicle identified yet"}
-        </div>
-      </div>
+          >
+            <option value="Person">Person</option>
+            <option value="Company">Company</option>
+          </select>
 
-      <div style={styles.cardBlock}>
-        <div style={styles.rowBetween}>
-          <div style={{ fontWeight: 700 }}>2. Initial Exterior Photos</div>
-          <button style={styles.secondaryButton} onClick={addInitialExteriorPhoto}>
-            <Camera size={14} /> Add Exterior Photo
-          </button>
-        </div>
-        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-          {inspectionForm.initialExteriorPhotos.length === 0 && (
-            <div style={{ color: "#6b7280" }}>No exterior photos yet.</div>
+          {inspectionForm.customerType === "Company" ? (
+            <input
+              style={styles.input}
+              placeholder="Company Name"
+              value={inspectionForm.companyName || ""}
+              onChange={(e) => setInspectionForm((p) => ({ ...p, companyName: e.target.value, customer: e.target.value }))}
+            />
+          ) : (
+            <>
+              <input
+                style={styles.input}
+                placeholder="Last Name"
+                value={inspectionForm.customerLastName || ""}
+                onChange={(e) => setInspectionForm((p) => ({ ...p, customerLastName: e.target.value }))}
+              />
+              <input
+                style={styles.input}
+                placeholder="First Name"
+                value={inspectionForm.customerFirstName || ""}
+                onChange={(e) => setInspectionForm((p) => ({ ...p, customerFirstName: e.target.value }))}
+              />
+            </>
           )}
-          {inspectionForm.initialExteriorPhotos.map((photo) => (
-            <div key={photo.id} style={styles.innerBlock}>
-              <div style={styles.formGrid}>
-                <input
-                  style={styles.input}
-                  placeholder="Photo label"
-                  value={photo.label}
-                  onChange={(e) => updateInitialExteriorPhoto(photo.id, "label", e.target.value)}
-                />
-                <input
-                  style={styles.input}
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => void uploadInitialExteriorPhotoFile(photo.id, e.target.files?.[0])}
-                />
-                <input
-                  style={styles.input}
-                  placeholder="Photo URL or paste image link"
-                  value={photo.url.startsWith("data:") ? "" : photo.url}
-                  onChange={(e) => updateInitialExteriorPhoto(photo.id, "url", e.target.value)}
-                />
-              </div>
-              {photo.url && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={styles.photoPreviewWrap}>
-                    <img src={photo.url} alt={photo.label || "Exterior photo"} style={styles.photoPreview} />
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div style={styles.cardBlock}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>3. Take Notes (3 Entries)</div>
-        <div style={{ display: "grid", gap: 10 }}>
-          {inspectionForm.takeNotes.map((item) => (
-            <div key={item.id} style={styles.innerBlock}>
-              <div style={styles.formGrid}>
-                <input
-                  style={styles.input}
-                  placeholder="Title"
-                  value={item.title}
-                  onChange={(e) => updateTakeNote(item.id, "title", e.target.value)}
-                />
-                <input
-                  style={styles.input}
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => void uploadTakeNotePhotoFile(item.id, e.target.files?.[0])}
-                />
-                <input
-                  style={styles.input}
-                  placeholder="Photo URL or paste image link"
-                  value={item.photoUrl.startsWith("data:") ? "" : item.photoUrl}
-                  onChange={(e) => updateTakeNote(item.id, "photoUrl", e.target.value)}
-                />
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <TextArea
-                  label="Note"
-                  value={item.note}
-                  onChange={(value) => updateTakeNote(item.id, "note", value)}
-                />
-              </div>
-              {item.photoUrl && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={styles.photoPreviewWrap}>
-                    <img src={item.photoUrl} alt={item.title || "Take note photo"} style={styles.photoPreview} />
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={styles.cardBlock}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>4. Arrival Inspection Checks</div>
-        <div style={{ display: "grid", gap: 10 }}>
-          {(["lights", "brokenGlass", "wipers", "hornCondition"] as ArrivalCheckKey[]).map((key) => (
-            <div key={key} style={styles.innerBlock}>
-              <div style={styles.formGrid}>
-                <input
-                  style={styles.input}
-                  value={renderArrivalCheckLabel(key)}
-                  disabled
-                />
-                <select
-                  style={styles.input}
-                  value={inspectionForm.arrivalChecks[key].status}
-                  onChange={(e) => updateArrivalCheck(key, "status", e.target.value)}
-                >
-                  {["Not Checked", "OK", "Needs Attention"].map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  style={styles.input}
-                  placeholder="Short note"
-                  value={inspectionForm.arrivalChecks[key].note}
-                  onChange={(e) => updateArrivalCheck(key, "note", e.target.value)}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={styles.cardBlock}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>5. Optional Customer Details / Advisor Notes</div>
-        <div style={styles.formGrid}>
           <input
             style={styles.input}
-            placeholder="Customer Name"
-            value={inspectionForm.customer}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, customer: e.target.value }))}
-          />
-          <input
-            style={styles.input}
-            placeholder="Customer Phone"
+            placeholder="Phone Number *"
             value={inspectionForm.customerPhone}
             onChange={(e) => setInspectionForm((p) => ({ ...p, customerPhone: e.target.value }))}
           />
-          <input
-            style={styles.input}
-            placeholder="Odometer"
-            value={inspectionForm.odometer}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, odometer: e.target.value }))}
-          />
-          <select
-            style={styles.input}
-            value={inspectionForm.bay}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, bay: e.target.value }))}
-          >
-            {["Bay 1", "Bay 2", "Bay 3", "Bay 4", "Bay 5"].map((bay) => (
-              <option key={bay} value={bay}>
-                {bay}
-              </option>
-            ))}
-          </select>
-          <select
-            style={styles.input}
-            value={inspectionForm.priority}
-            onChange={(e) =>
-              setInspectionForm((p) => ({ ...p, priority: e.target.value as Priority }))
-            }
-          >
-            {["Low", "Normal", "High", "Urgent"].map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </div>
 
-        <div style={{ ...styles.formGrid, marginTop: 10 }}>
-          <label style={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={inspectionForm.isReturnJob}
-              onChange={(e) =>
-                setInspectionForm((p) => ({ ...p, isReturnJob: e.target.checked }))
-              }
-            />
-            <span>Return Job / Comeback</span>
-          </label>
+          <div style={{ ...styles.input, display: "flex", alignItems: "center", color: "#6b7280" }}>
+            Fill either Company Name or both First Name and Last Name.
+          </div>
+
+          <div style={{ ...styles.input, display: "flex", alignItems: "center", color: "#6b7280" }}>
+            Choose Ilocos Sur or Abra to get municipality suggestions, or type any municipality manually.
+          </div>
 
           <input
             style={styles.input}
-            placeholder="Return reason"
-            value={inspectionForm.returnReason}
-            onChange={(e) => setInspectionForm((p) => ({ ...p, returnReason: e.target.value }))}
+            placeholder="Email Address (optional)"
+            value={inspectionForm.customerEmail || ""}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, customerEmail: e.target.value }))}
           />
+
 
           <select
             style={styles.input}
-            value={inspectionForm.linkedPreviousRoId}
+            value={inspectionForm.municipalityGroup || ""}
             onChange={(e) =>
-              setInspectionForm((p) => ({ ...p, linkedPreviousRoId: e.target.value }))
+              setInspectionForm((p) => ({
+                ...p,
+                municipalityGroup: e.target.value as "Ilocos Sur" | "Abra" | "",
+                customerMunicipality: "",
+              }))
             }
           >
-            <option value="">Link Previous RO (optional)</option>
-            {ros.map((ro) => (
-              <option key={ro.id} value={ro.id}>
-                {ro.roNumber} • {ro.plate}
-              </option>
-            ))}
+            <option value="">Select Province Group (optional)</option>
+            <option value="Ilocos Sur">Ilocos Sur</option>
+            <option value="Abra">Abra</option>
           </select>
+
+          <input
+            style={styles.input}
+            list="municipality-options"
+            placeholder="Municipality / Town *"
+            value={inspectionForm.customerMunicipality || ""}
+            onChange={(e) => setInspectionForm((p) => ({ ...p, customerMunicipality: e.target.value }))}
+          />
+
+          <datalist id="municipality-options">
+            {suggestedMunicipalities.map((item) => (
+              <option key={item} value={item} />
+            ))}
+          </datalist>
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          <TextArea
-            label="Service Advisor Notes"
-            value={inspectionForm.serviceAdvisorNotes}
-            onChange={(value) =>
-              setInspectionForm((p) => ({ ...p, serviceAdvisorNotes: value }))
-            }
-          />
+        <div style={styles.innerBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Suggested Towns / Municipalities</div>
+          <div style={styles.wrapRow}>
+            {suggestedMunicipalities.length > 0 ? suggestedMunicipalities.map((town) => (
+              <button
+                key={town}
+                type="button"
+                style={inspectionForm.customerMunicipality === town ? styles.primaryButton : styles.secondaryButton}
+                onClick={() => setInspectionForm((p) => ({ ...p, customerMunicipality: town }))}
+              >
+                {town}
+              </button>
+            )) : <span style={styles.badgeMuted}>Choose Ilocos Sur or Abra first, or type a custom town.</span>}
+          </div>
+        </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Initial Exterior Photos</div>
+          <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+            {inspectionForm.initialExteriorPhotos.length === 0 && (
+              <div style={{ color: "#6b7280" }}>No exterior photos yet.</div>
+            )}
+            {inspectionForm.initialExteriorPhotos.map((photo) => (
+              <div key={photo.id} style={styles.innerBlock}>
+                <div style={styles.formGrid}>
+                  <input style={styles.input} placeholder="Photo label" value={photo.label} onChange={(e) => updateInitialExteriorPhoto(photo.id, "label", e.target.value)} />
+                  <input style={styles.input} type="file" accept="image/*" onChange={(e) => void uploadInitialExteriorPhotoFile(photo.id, e.target.files?.[0])} />
+                  <input style={styles.input} placeholder="Photo URL or paste image link" value={photo.url.startsWith("data:") ? "" : photo.url} onChange={(e) => updateInitialExteriorPhoto(photo.id, "url", e.target.value)} />
+                </div>
+                {photo.url && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={styles.photoPreviewWrap}>
+                      <img src={photo.url} alt={photo.label || "Exterior photo"} style={styles.photoPreview} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+            <button style={styles.secondaryButton} onClick={addInitialExteriorPhoto}>
+              <Camera size={14} /> Add Exterior Photo
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Arrival Inspection Checks</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Quick condition checks captured during intake before the tire inspection.
+              </div>
+            </div>
+            <span style={requiredArrivalAttentionCount > 0 ? styles.badgeWarn : styles.badgeGood}>
+              {requiredArrivalAttentionCount > 0 ? `${requiredArrivalAttentionCount} Need Attention` : "No Arrival Flags"}
+            </span>
+          </div>
+          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+            {(["lights", "brokenGlass", "wipers", "hornCondition"] as ArrivalCheckKey[]).map((key) => {
+              const needsAttention = inspectionForm.arrivalChecks[key].status === "Needs Attention";
+              return (
+                <div key={key} style={{ ...styles.innerBlock, border: needsAttention ? "1px solid #f59e0b" : "1px solid #e2e8f0" }}>
+                  <div style={styles.formGrid}>
+                    <input style={styles.input} value={renderArrivalCheckLabel(key)} disabled />
+                    <select style={styles.input} value={inspectionForm.arrivalChecks[key].status} onChange={(e) => updateArrivalCheck(key, "status", e.target.value)}>
+                      {["Not Checked", "OK", "Needs Attention"].map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                    <input style={styles.input} placeholder="Short note" value={inspectionForm.arrivalChecks[key].note} onChange={(e) => updateArrivalCheck(key, "note", e.target.value)} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Take Notes</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {inspectionForm.takeNotes.map((item) => (
+              <div key={item.id} style={styles.innerBlock}>
+                <div style={styles.formGrid}>
+                  <input style={styles.input} placeholder="Title" value={item.title} onChange={(e) => updateTakeNote(item.id, "title", e.target.value)} />
+                  <input style={styles.input} type="file" accept="image/*" onChange={(e) => void uploadTakeNotePhotoFile(item.id, e.target.files?.[0])} />
+                  <input style={styles.input} placeholder="Photo URL or paste image link" value={item.photoUrl.startsWith("data:") ? "" : item.photoUrl} onChange={(e) => updateTakeNote(item.id, "photoUrl", e.target.value)} />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <TextArea label="Note" value={item.note} onChange={(value) => updateTakeNote(item.id, "note", value)} />
+                </div>
+                {item.photoUrl && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={styles.photoPreviewWrap}>
+                      <img src={item.photoUrl} alt={item.title || "Take note photo"} style={styles.photoPreview} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Tire Wear Inspection</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Uses your tread chart: 6 mm and above = Good, 4–5 mm = OK, 3 mm = Inspect Monthly, 2 mm = Won’t Last Long, 1.66 mm = Legal Limit.
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <span style={tireInspectionSummary.unsafeCount > 0 ? styles.badgeDanger : styles.badgeGood}>
+                {tireInspectionSummary.unsafeCount > 0 ? `${tireInspectionSummary.unsafeCount} Unsafe Tire${tireInspectionSummary.unsafeCount > 1 ? "s" : ""}` : "No Unsafe Tire Flag"}
+              </span>
+              <span style={tireInspectionSummary.legalLimitCount > 0 ? styles.badgeDanger : styles.badgeBlue}>
+                {tireInspectionSummary.legalLimitCount > 0 ? `${tireInspectionSummary.legalLimitCount} at Legal Limit` : `${tireInspectionSummary.measuredCount}/4 Depths Entered`}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+            {renderTireVehicleDiagram(true)}
+            {([selectedTirePosition, ...(Object.keys(TIRE_POSITION_LABELS) as TirePosition[]).filter((position) => position !== selectedTirePosition)])
+              .map((position) => {
+              const tire = safeTireInspection[position];
+              const treadAssessment = getTreadDepthAssessment(tire.treadDepthMm);
+              const isSelectedTire = selectedTirePosition === position;
+              return (
+                <div
+                  key={position}
+                  style={{
+                    ...styles.innerBlock,
+                    background: treadAssessment.background,
+                    border: `2px solid ${isSelectedTire ? treadAssessment.border : treadAssessment.border}`,
+                    boxShadow: isSelectedTire ? `0 0 0 3px ${treadAssessment.border}22` : "none",
+                  }}
+                >
+                  <div style={styles.rowBetween}>
+                    <div style={{ fontWeight: 800, color: treadAssessment.text }}>
+                      {TIRE_POSITION_LABELS[position]} {isSelectedTire ? "• Selected from diagram" : ""}
+                    </div>
+                    <button
+                      type="button"
+                      style={styles.secondaryButton}
+                      onClick={() => setSelectedTirePosition(position)}
+                    >
+                      Focus on {TIRE_POSITION_SHORT_LABELS[position]}
+                    </button>
+                  </div>
+                  <div style={{ ...styles.formGrid, marginTop: 10 }}>
+                    <input style={{ ...styles.input, fontWeight: 700, color: treadAssessment.text, background: "rgba(255,255,255,0.72)" }} value={TIRE_POSITION_LABELS[position]} disabled />
+                    <select
+                      style={{ ...styles.input, background: "rgba(255,255,255,0.88)" }}
+                      value={tire.condition}
+                      onChange={(e) => updateTireInspection(position, { condition: e.target.value as TireCondition })}
+                    >
+                      {["Good", "Uneven Wear", "Worn", "Bald"].map((condition) => (
+                        <option key={condition} value={condition}>{condition}</option>
+                      ))}
+                    </select>
+                    <input style={{ ...styles.input, background: "rgba(255,255,255,0.88)" }} placeholder="Tread Depth (mm)" value={tire.treadDepthMm} onChange={(e) => updateTireInspection(position, { treadDepthMm: e.target.value })} />
+                  </div>
+                  <div style={{ ...styles.summaryRow, marginTop: 8 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: treadAssessment.background, color: treadAssessment.text, border: `1px solid ${treadAssessment.border}` }}>{treadAssessment.label}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: "rgba(255,255,255,0.72)", color: "#111827", border: "1px solid rgba(255,255,255,0.7)" }}>{tire.treadDepthMm.trim() ? `${tire.treadDepthMm.trim()} mm` : "Depth not entered"}</span>
+                    {tire.unsafe ? <span style={styles.badgeDanger}>Unsafe</span> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
+    );
+  };
 
-      <div style={styles.cardBlock}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>6. Diagnostic Triggers</div>
-        <div style={{ color: "#6b7280", marginBottom: 10 }}>
-          These create work lines when you generate the RO.
+  const InspectionView = () => {
+    const tireInspectionSummary = getTireInspectionSummary(safeTireInspection);
+    const safeUnderHoodInspection = ensureUnderHoodInspectionMap(inspectionForm.underHoodInspection);
+    const underHoodSummary = getUnderHoodInspectionSummary(safeUnderHoodInspection);
+    const selectedIssues = INSPECTION_ISSUES.filter((issue) => inspectionForm.issues[issue.key]);
+    const serviceMileagePlan = getServiceRecommendationForOdometer(inspectionForm.odometer);
+    const dueServiceItems = Object.entries(serviceMileagePlan.row.items).filter(([, value]) => value !== "—");
+    const arrivalAttentionCount = (Object.keys(inspectionForm.arrivalChecks) as ArrivalCheckKey[]).filter(
+      (key) => inspectionForm.arrivalChecks[key].status === "Needs Attention",
+    ).length;
+    const intakeComplete =
+      !!inspectionForm.plate.trim() &&
+      !!inspectionForm.vehicleYear.trim() &&
+      !!inspectionForm.vehicleMake.trim() &&
+      !!inspectionForm.vehicleModel.trim() &&
+      !!inspectionForm.odometer.trim() &&
+      !!inspectionForm.fuelType &&
+      !!inspectionForm.transmissionType &&
+      !!inspectionForm.customerPhone.trim();
+
+    return (
+      <div>
+        <div style={styles.rowBetween}>
+          <div>
+            <h2 style={styles.heading}>Inspection</h2>
+            <div style={{ color: "#6b7280", marginTop: -8 }}>
+              Stable inspection workflow with intake summary, mileage-based service recommendations, under-the-hood review, tire visibility, and quick service selection.
+            </div>
+          </div>
+          <div style={styles.wrapRow}>
+            <button
+              style={styles.secondaryButton}
+              onClick={() => {
+                if (editingVehicleIntakeRoId) {
+                  setView("vehicleIntake");
+                  return;
+                }
+                const draftRo = ros.find((ro) => ro.plate === inspectionForm.plate && ro.customerPhone === inspectionForm.customerPhone) || ros.find((ro) => ro.id === editingVehicleIntakeRoId);
+                if (draftRo) {
+                  startVehicleIntakeEditFromRO(draftRo.id);
+                } else {
+                  setView("vehicleIntake");
+                }
+              }}
+            >
+              Edit Vehicle Intake
+            </button>
+            <button style={styles.primaryButton} onClick={createROFromInspection}>
+              Generate RO from Inspection
+            </button>
+          </div>
         </div>
-        <div style={styles.issueGrid}>
-          {INSPECTION_ISSUES.map((issue) => (
-            <label key={issue.key} style={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={inspectionForm.issues[issue.key]}
-                onChange={(e) =>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Inspection Readiness</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Review the intake, tire condition, arrival checks, and selected diagnostics before generating the RO.
+              </div>
+            </div>
+            <span style={intakeComplete ? styles.badgeGood : styles.badgeWarn}>
+              {intakeComplete ? "Intake Complete" : "Intake Incomplete"}
+            </span>
+          </div>
+
+          <div style={{ ...styles.summaryGrid, marginTop: 12 }}>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Plate</div><strong>{inspectionForm.plate || "-"}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Vehicle</div><strong>{buildInspectionVehicleLabel(inspectionForm) || "-"}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Odometer</div><strong>{inspectionForm.odometer || "-"}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Fuel / Trans</div><strong>{inspectionForm.fuelType || "-"} • {inspectionForm.transmissionType || "-"}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Phone</div><strong>{inspectionForm.customerPhone || "-"}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Bay / Priority</div><strong>{inspectionForm.bay} • {inspectionForm.priority}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Arrival Flags</div><strong>{arrivalAttentionCount}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Quick Service Categories</div><strong>{selectedIssues.length}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Under-Hood Flags</div><strong>{underHoodSummary.needsAttention + underHoodSummary.urgent}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Unsafe Tires</div><strong>{tireInspectionSummary.unsafeCount}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Measured Tires</div><strong>{tireInspectionSummary.measuredCount}/4</strong></div>
+          </div>
+
+          {inspectionForm.serviceAdvisorNotes?.trim() ? (
+            <div style={{ ...styles.innerBlock, marginTop: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Service Advisor Notes from Intake</div>
+              <div style={{ color: "#374151", whiteSpace: "pre-wrap", fontSize: 14 }}>{inspectionForm.serviceAdvisorNotes}</div>
+            </div>
+          ) : null}
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Mileage-Based Service Recommendations</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Based on the current odometer, these are the recommended services to review during vehicle inspection.
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <button
+                type="button"
+                style={styles.primaryButton}
+                onClick={() => {
+                  const recommendedIssues = mapServiceItemsToQuickCategories(serviceMileagePlan.row.items);
                   setInspectionForm((p) => ({
                     ...p,
-                    issues: { ...p.issues, [issue.key]: e.target.checked },
+                    issues: {
+                      ...p.issues,
+                      ...Object.fromEntries(recommendedIssues.map((key) => [key, true])),
+                    } as InspectionSelection,
+                    recommendationsSummary: recommendedIssues.length
+                      ? `Mileage due at ${serviceMileagePlan.targetIntervalKm.toLocaleString()} km: ${recommendedIssues.map((key) => INSPECTION_ISSUE_SHORT_LABELS[key]).join(", ")}`
+                      : p.recommendationsSummary,
+                  }));
+                }}
+              >
+                Apply Recommended Services
+              </button>
+              <span style={styles.badgeBlue}>Due at {serviceMileagePlan.targetIntervalKm.toLocaleString()} km</span>
+              <span style={serviceMileagePlan.kmToNextInterval === 0 ? styles.badgeWarn : styles.badgeMuted}>
+                {serviceMileagePlan.kmToNextInterval === 0
+                  ? "Due Now"
+                  : `${serviceMileagePlan.kmToNextInterval.toLocaleString()} km remaining`}
+              </span>
+              <span style={styles.badgeGood}>{serviceMileagePlan.row.fullInspectionLabel} Inspection</span>
+            </div>
+          </div>
+
+          <div style={{ ...styles.summaryGrid, marginTop: 12 }}>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Current Odometer</div><strong>{serviceMileagePlan.odometerKm ? `${serviceMileagePlan.odometerKm.toLocaleString()} km` : "Add odometer first"}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Service Interval</div><strong>{serviceMileagePlan.targetIntervalKm.toLocaleString()} km</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Full Inspection</div><strong>{serviceMileagePlan.row.fullInspectionLabel}</strong></div>
+            <div style={styles.metricMini}><div style={styles.mutedLabel}>Recommended Items</div><strong>{dueServiceItems.length}</strong></div>
+          </div>
+
+          <div style={{ ...styles.formGrid, marginTop: 12 }}>
+            {dueServiceItems.map(([key, value]) => (
+              <div key={key} style={{ ...styles.innerBlock, padding: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>{SERVICE_ITEM_LABELS[key as keyof ServiceRecommendationRow["items"]]}</div>
+                <div style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{String(value)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Under the Hood Inspection</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Always shown by default so technicians can review key under-hood items on every inspection.
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <span style={underHoodSummary.urgent > 0 ? styles.badgeDanger : styles.badgeGood}>
+                {underHoodSummary.urgent > 0 ? `${underHoodSummary.urgent} Urgent` : "No Urgent Flags"}
+              </span>
+              <span style={underHoodSummary.needsAttention > 0 ? styles.badgeWarn : styles.badgeBlue}>
+                {underHoodSummary.needsAttention > 0 ? `${underHoodSummary.needsAttention} Need Attention` : "All Under-Hood Items OK"}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+            {(Object.keys(UNDER_HOOD_INSPECTION_LABELS) as UnderHoodInspectionKey[]).map((key) => {
+              const item = safeUnderHoodInspection[key];
+              const statusStyle = item.status === "Urgent" ? styles.badgeDanger : item.status === "Needs Attention" ? styles.badgeWarn : styles.badgeGood;
+              const presetOptions = getUnderHoodNotePresets(key, item.status);
+              const recommendedCategories = getUnderHoodRecommendedCategories(key, item.status);
+              const noteChips = getUnderHoodNoteChips(item.note);
+              return (
+                <div key={key} style={{ ...styles.innerBlock, border: item.status === "Urgent" ? "1px solid #ef4444" : item.status === "Needs Attention" ? "1px solid #f59e0b" : "1px solid #e2e8f0" }}>
+                  <div style={styles.formGrid}>
+                    <input style={styles.input} value={UNDER_HOOD_INSPECTION_LABELS[key]} disabled />
+                    <select
+                      style={styles.input}
+                      value={item.status}
+                      onChange={(e) =>
+                        setInspectionForm((p) => ({
+                          ...p,
+                          underHoodInspection: {
+                            ...ensureUnderHoodInspectionMap(p.underHoodInspection),
+                            [key]: { ...ensureUnderHoodInspectionMap(p.underHoodInspection)[key], status: e.target.value as UnderHoodInspectionStatus },
+                          },
+                        }))
+                      }
+                    >
+                      {["OK", "Needs Attention", "Urgent"].map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                    <select
+                      style={styles.input}
+                      defaultValue=""
+                      onChange={(e) => {
+                        const selectedPreset = e.target.value;
+                        applyUnderHoodPresetNote(key, selectedPreset);
+                        e.target.selectedIndex = 0;
+                      }}
+                    >
+                      <option value="">{UNDER_HOOD_INSPECTION_LABELS[key]} quick notes</option>
+                      {presetOptions.map((preset) => (
+                        <option key={preset} value={preset}>{preset}</option>
+                      ))}
+                    </select>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        style={{ ...styles.input, flex: 1 }}
+                        placeholder="Short note or manual input"
+                        value={item.note}
+                        onChange={(e) =>
+                          setInspectionForm((p) => ({
+                            ...p,
+                            underHoodInspection: {
+                              ...ensureUnderHoodInspectionMap(p.underHoodInspection),
+                              [key]: { ...ensureUnderHoodInspectionMap(p.underHoodInspection)[key], note: e.target.value },
+                            },
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={() => clearUnderHoodNote(key)}
+                      >
+                        Clear Note
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ ...styles.wrapRow, marginTop: 8 }}>
+                    <span style={statusStyle}>{item.status}</span>
+                    {recommendedCategories.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        style={item.status === "Urgent" ? styles.primaryButton : styles.secondaryButton}
+                        onClick={() => applyUnderHoodRecommendationLink(key, category)}
+                      >
+                        Recommend {INSPECTION_ISSUE_SHORT_LABELS[category]}
+                      </button>
+                    ))}
+                  </div>
+                  {noteChips.length > 0 ? (
+                    <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+                      {noteChips.map((chip) => {
+                        const isPresetChip = presetOptions.some((preset) => preset.toLowerCase() === chip.toLowerCase());
+                        const chipStyle =
+                          item.status === "Urgent"
+                            ? {
+                                background: isPresetChip ? "#fee2e2" : "#fff1f2",
+                                color: "#991b1b",
+                                border: "1px solid #fca5a5",
+                              }
+                            : item.status === "Needs Attention"
+                            ? {
+                                background: isPresetChip ? "#fef3c7" : "#fffbeb",
+                                color: "#92400e",
+                                border: "1px solid #fcd34d",
+                              }
+                            : {
+                                background: isPresetChip ? "#dcfce7" : "#eff6ff",
+                                color: isPresetChip ? "#166534" : "#1d4ed8",
+                                border: isPresetChip ? "1px solid #86efac" : "1px solid #bfdbfe",
+                              };
+                        return (
+                          <span
+                            key={`${key}-${chip}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              ...chipStyle,
+                            }}
+                          >
+                            {chip}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Tire Status from Vehicle Intake</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Visual tire condition stays read-only here so technicians can inspect without re-encoding the intake tire data.
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <span style={tireInspectionSummary.unsafeCount > 0 ? styles.badgeDanger : styles.badgeGood}>
+                {tireInspectionSummary.unsafeCount > 0 ? `${tireInspectionSummary.unsafeCount} Unsafe Tire${tireInspectionSummary.unsafeCount > 1 ? "s" : ""}` : "No Unsafe Tire Flag"}
+              </span>
+              <span style={tireInspectionSummary.legalLimitCount > 0 ? styles.badgeDanger : styles.badgeBlue}>
+                {tireInspectionSummary.legalLimitCount > 0 ? `${tireInspectionSummary.legalLimitCount} at Legal Limit` : `${tireInspectionSummary.measuredCount}/4 Depths Entered`}
+              </span>
+            </div>
+          </div>
+          <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+            {renderTireVehicleDiagram(false)}
+            <div style={{ display: "grid", gap: 10 }}>
+              {(Object.keys(TIRE_POSITION_LABELS) as TirePosition[]).map((position) => {
+                const tire = safeTireInspection[position];
+                const treadAssessment = getTreadDepthAssessment(tire.treadDepthMm);
+                return (
+                  <div
+                    key={position}
+                    style={{
+                      ...styles.shopMiniRow,
+                      background: treadAssessment.background,
+                      color: treadAssessment.text,
+                      border: `1px solid ${treadAssessment.border}`,
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                    }}
+                  >
+                    <span style={{ fontWeight: 700 }}>{TIRE_POSITION_LABELS[position]}</span>
+                    <span>
+                      {tire.condition} • {tire.treadDepthMm.trim() ? `${tire.treadDepthMm.trim()} mm` : "No depth"} • {treadAssessment.label}{tire.unsafe ? " • UNSAFE" : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Quick Service Categories</div>
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Tap quick service category buttons. Selected items will become work lines when you generate the RO.
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                onClick={() =>
+                  setInspectionForm((p) => ({
+                    ...p,
+                    issues: INSPECTION_ISSUES.reduce((acc, issue) => ({ ...acc, [issue.key]: false }), {} as InspectionSelection),
                   }))
                 }
-              />
-              <span>
-                {issue.label} · {issue.defaultWorkLineLabel} · {issue.defaultHours}h
+              >
+                Clear All
+              </button>
+              <span style={selectedIssues.length > 0 ? styles.badgeGood : styles.badgeMuted}>
+                {selectedIssues.length} Selected
               </span>
-            </label>
-          ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            <div style={styles.wrapRow}>
+              {INSPECTION_ISSUES
+                .slice()
+                .sort((a, b) => Number(inspectionForm.issues[b.key]) - Number(inspectionForm.issues[a.key]))
+                .map((issue) => {
+                  const selected = inspectionForm.issues[issue.key];
+                  return (
+                    <button
+                      key={issue.key}
+                      type="button"
+                      title={INSPECTION_ISSUE_DESCRIPTIONS[issue.key]}
+                      onClick={() =>
+                        setInspectionForm((p) => ({
+                          ...p,
+                          issues: { ...p.issues, [issue.key]: !p.issues[issue.key] },
+                        }))
+                      }
+                      style={{
+                        ...styles.secondaryButton,
+                        color: selected ? "#166534" : "#0f172a",
+                        border: selected ? "1px solid #86efac" : "1px solid #cbd5e1",
+                        background: selected ? "#dcfce7" : "#ffffff",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {INSPECTION_ISSUE_SHORT_LABELS[issue.key]}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
+
 
   const ApprovalView = () => (
     <div>
@@ -4026,7 +6967,7 @@ export default function App() {
                   <input
                     disabled={!canEditRo(ro)}
                     style={styles.input}
-                    placeholder="Odometer"
+                    placeholder="Odometer *"
                     value={ro.odometer}
                     onChange={(e) => updateRO(ro.id, { odometer: e.target.value })}
                   />
@@ -4345,11 +7286,42 @@ export default function App() {
             </div>
 
             <div style={{ marginTop: 10 }}>
-              <TextArea
-                label="Part Photo URLs (one per line)"
-                value={photosToMultiline(part.photos || [])}
-                onChange={(value) => updatePart(part.id, { photos: multilineToPhotos(value) })}
-              />
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>Part Photos</div>
+              <div style={styles.formGrid}>
+                <input
+                  style={styles.input}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => void uploadPartRequestPhotoFiles(part.id, e.target.files)}
+                />
+                <div style={{ ...styles.input, display: "flex", alignItems: "center" }}>
+                  {part.photos?.length || 0} uploaded photo(s)
+                </div>
+              </div>
+              {(part.photos?.length || 0) > 0 && (
+                <div style={{ ...styles.photoGrid, marginTop: 10 }}>
+                  {(part.photos || []).map((photo) => (
+                    <div key={photo.id} style={styles.photoCard}>
+                      <div style={{ ...styles.photoPreviewWrap, marginBottom: 8 }}>
+                        {photo.url ? (
+                          <img src={photo.url} alt={photo.label || "Part photo"} style={styles.photoPreview} />
+                        ) : (
+                          <div style={styles.photoEmpty}><Image size={18} /> No image</div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{photo.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: 10 }}>
+                <TextArea
+                  label="Part Photo URLs (optional, one per line)"
+                  value={photosToMultiline(part.photos || [])}
+                  onChange={(value) => updatePart(part.id, { photos: multilineToPhotos(value) })}
+                />
+              </div>
             </div>
 
             <div style={{ marginTop: 10, ...styles.wrapRow }}>
@@ -4375,11 +7347,19 @@ export default function App() {
                     {["Complete", "Incomplete", "Damaged"].map((condition) => <option key={condition} value={condition}>{condition}</option>)}
                   </select>
                   <input style={styles.input} placeholder="Received Photo URL" value={part.receivedPhotoUrl || ""} onChange={(e) => updatePart(part.id, { receivedPhotoUrl: e.target.value })} />
+                  <input style={styles.input} type="file" accept="image/*" onChange={(e) => void uploadPartReceivedPhotoFile(part.id, e.target.files?.[0])} />
                   <input style={styles.input} placeholder="Received Time" value={part.receivedAt ? new Date(part.receivedAt).toLocaleString() : ""} disabled />
                 </div>
                 <div style={{ marginTop: 10 }}>
                   <TextArea label="Arrival Notes" value={part.receivedNotes || ""} onChange={(value) => updatePart(part.id, { receivedNotes: value })} />
                 </div>
+                {part.receivedPhotoUrl && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={styles.photoPreviewWrap}>
+                      <img src={part.receivedPhotoUrl} alt="Received part" style={styles.photoPreview} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -4511,6 +7491,23 @@ export default function App() {
       </div>
 
       <div style={{ ...styles.cardBlock, marginTop: 16 }}>
+        <div style={styles.rowBetween}>
+          <div>
+            <div style={{ fontWeight: 700 }}>Attendance Link</div>
+            <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+              Technician and mechanic attendance now comes from the employee board for today.
+            </div>
+          </div>
+          <button style={styles.secondaryButton} onClick={() => setView("employees")}>Open Attendance Board</button>
+        </div>
+        <div style={{ ...styles.statsGrid, marginTop: 12 }}>
+          <MetricCard title="Tech / Mechanic Employees" value={technicianEmployeeSummary.total} />
+          <MetricCard title="Present Today" value={technicianEmployeeSummary.present} />
+          <MetricCard title="Checked Out Today" value={technicianEmployeeSummary.checkedOut} />
+        </div>
+      </div>
+
+      <div style={{ ...styles.cardBlock, marginTop: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Top Performers</div>
         <div style={{ display: "grid", gap: 8 }}>
           {technicianLeaderboard.slice(0, 3).map((tech, index) => (
@@ -4532,52 +7529,71 @@ export default function App() {
       </div>
 
       <div style={{ ...styles.shopGrid, marginTop: 16 }}>
-        {technicianLeaderboard.map((tech) => (
-          <div key={tech.id} style={styles.shopCard}>
-            <div style={styles.rowBetween}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{tech.name}</div>
-                <div style={{ fontSize: 13, color: "#6b7280" }}>{tech.role}</div>
+        {technicianLeaderboard.map((tech) => {
+          const linkedEmployee = employees.find((employee) => employee.displayName.trim().toLowerCase() === tech.name.trim().toLowerCase());
+          const linkedAttendance = linkedEmployee ? attendanceRecords.find((record) => record.employeeId === linkedEmployee.id && record.date === getTodayDateString()) : undefined;
+          return (
+            <div key={tech.id} style={styles.shopCard}>
+              <div style={styles.rowBetween}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{tech.name}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>{tech.role}</div>
+                </div>
+                <div style={styles.wrapRow}>
+                  <span style={tech.clockedIn ? styles.badgeGood : styles.badgeMuted}>
+                    {tech.clockedIn ? "Clocked In" : "Clocked Out"}
+                  </span>
+                  <span style={styles.badgeBlue}>{tech.rankingScore} score</span>
+                  <button style={styles.secondaryButton} onClick={() => toggleTechClock(tech.id)}>
+                    <UserCog size={14} /> Toggle
+                  </button>
+                </div>
               </div>
-              <div style={styles.wrapRow}>
-                <span style={tech.clockedIn ? styles.badgeGood : styles.badgeMuted}>
-                  {tech.clockedIn ? "Clocked In" : "Clocked Out"}
-                </span>
-                <span style={styles.badgeBlue}>{tech.rankingScore} score</span>
-                <button style={styles.secondaryButton} onClick={() => toggleTechClock(tech.id)}>
-                  <UserCog size={14} /> Toggle
-                </button>
-              </div>
-            </div>
 
-            <div style={{ marginTop: 10 }}>
-              <div>
-                <strong>Current RO:</strong> {tech.currentRoNumber || "—"}
-              </div>
-              <div>
-                <strong>Current Job:</strong> {tech.currentWorkLine || "—"}
-              </div>
-              <div>
-                <strong>Active Time:</strong> {tech.currentStartedAt ? formatDuration(tech.currentStartedAt) : "—"}
-              </div>
-            </div>
+              {linkedEmployee && (
+                <div style={{ ...styles.innerBlock, marginTop: 10 }}>
+                  <div style={styles.rowBetween}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>Linked Employee Attendance</div>
+                    <span style={linkedAttendance?.status === "Present" ? styles.badgeGood : linkedAttendance?.status === "Late" ? styles.badgeWarn : linkedAttendance?.status === "Half Day" ? styles.badgeBlue : styles.badgeMuted}>
+                      {linkedAttendance?.status || "Absent"}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gap: 4, fontSize: 13, color: "#374151", marginTop: 8 }}>
+                    <div>Employee: {linkedEmployee.employeeCode} • {linkedEmployee.username}</div>
+                    <div>Check In / Out: {linkedAttendance?.checkInTime || "-"} / {linkedAttendance?.checkOutTime || "-"}</div>
+                  </div>
+                </div>
+              )}
 
-            <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-              <div>Billed Hours: {tech.billedHours}</div>
-              <div>Actual Hours: {tech.actualHours}</div>
-              <div>Efficiency: {tech.efficiency}%</div>
-              <div>Completed Lines: {tech.completedLines}</div>
-              <div>Quality Check Lines: {tech.qcLines}</div>
-              <div>Completion Rate: {tech.completionRate}%</div>
-              <div>Average Hours / Job: {tech.avgHoursPerJob}</div>
-              <div>Comebacks: {tech.comebacks}</div>
-              <div>Active Jobs: {tech.active}</div>
-              <div>Labor Revenue: ₱{tech.laborRevenue.toLocaleString()}</div>
-              <div>Total Estimated Value: ₱{tech.estimatedValue.toLocaleString()}</div>
-              <div>Utilization Score: {tech.utilizationScore}</div>
+              <div style={{ marginTop: 10 }}>
+                <div>
+                  <strong>Current RO:</strong> {tech.currentRoNumber || "—"}
+                </div>
+                <div>
+                  <strong>Current Job:</strong> {tech.currentWorkLine || "—"}
+                </div>
+                <div>
+                  <strong>Active Time:</strong> {tech.currentStartedAt ? formatDuration(tech.currentStartedAt) : "—"}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                <div>Billed Hours: {tech.billedHours}</div>
+                <div>Actual Hours: {tech.actualHours}</div>
+                <div>Efficiency: {tech.efficiency}%</div>
+                <div>Completed Lines: {tech.completedLines}</div>
+                <div>Quality Check Lines: {tech.qcLines}</div>
+                <div>Completion Rate: {tech.completionRate}%</div>
+                <div>Average Hours / Job: {tech.avgHoursPerJob}</div>
+                <div>Comebacks: {tech.comebacks}</div>
+                <div>Active Jobs: {tech.active}</div>
+                <div>Labor Revenue: ₱{tech.laborRevenue.toLocaleString()}</div>
+                <div>Total Estimated Value: ₱{tech.estimatedValue.toLocaleString()}</div>
+                <div>Utilization Score: {tech.utilizationScore}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -5266,7 +8282,7 @@ export default function App() {
           <div style={{ ...styles.formGrid, marginTop: 12 }}>
             <input style={styles.input} placeholder="Report Date" type="date" value={item.reportDate ? new Date(item.reportDate).toISOString().slice(0,10) : ""} onChange={(e) => updateBackJob(item.id, { reportDate: e.target.value ? new Date(e.target.value).getTime() : Date.now() })} />
             <input style={styles.input} placeholder="Back Job Take-In Date" type="date" value={item.takeInDate} onChange={(e) => updateBackJob(item.id, { takeInDate: e.target.value })} />
-            <input style={styles.input} placeholder="Plate Number" value={item.plateNumber} onChange={(e) => updateBackJob(item.id, { plateNumber: e.target.value.toUpperCase() })} />
+            <input style={styles.input} placeholder="Plate Number *" value={item.plateNumber} onChange={(e) => updateBackJob(item.id, { plateNumber: e.target.value.toUpperCase() })} />
             <input style={styles.input} placeholder="Customer Name" value={item.customerName} onChange={(e) => updateBackJob(item.id, { customerName: e.target.value })} />
             <input style={styles.input} placeholder="Vehicle" value={item.vehicle} onChange={(e) => updateBackJob(item.id, { vehicle: e.target.value })} />
             <input style={styles.input} placeholder="Initial Invoice #" value={item.initialInvoiceNumber} onChange={(e) => updateBackJob(item.id, { initialInvoiceNumber: e.target.value })} />
@@ -5527,6 +8543,221 @@ export default function App() {
     </div>
   );
 
+  const EmployeeView = () => {
+    const sortedEmployees = filteredEmployees;
+    return (
+      <div>
+        <div style={styles.rowBetween}>
+          <div>
+            <h2 style={styles.heading}>Employee Master + Attendance</h2>
+            <div style={{ color: "#6b7280", marginTop: -8 }}>
+              Manage employee records, login credentials, allowed views, and daily attendance tracking.
+            </div>
+          </div>
+          <div style={styles.wrapRow}>
+            <button style={styles.secondaryButton} onClick={resetEmployeeForm}>New Employee</button>
+            <button style={styles.secondaryButton} onClick={() => setView("tech")}>Open Technician Board</button>
+            <span style={styles.badgeBlue}>Attendance Date: {attendanceBoardDate}</span>
+          </div>
+        </div>
+
+        <div style={styles.statsGrid}>
+          <MetricCard title="Total Employees" value={employees.length} />
+          <MetricCard title="Active Accounts" value={employees.filter((employee) => employee.active).length} />
+          <MetricCard title="Present / Late" value={attendanceBoardSummary.present + attendanceBoardSummary.late} />
+          <MetricCard title="Checked Out" value={attendanceBoardSummary.checkedOut} />
+        </div>
+
+        <div style={{ ...styles.shopGrid, marginTop: 16 }}>
+          <div style={styles.cardBlock}>
+            <div style={styles.rowBetween}>
+              <div style={{ fontWeight: 700 }}>{selectedEmployeeId ? "Edit Employee" : "Create Employee"}</div>
+              {!canManageEmployees && <span style={styles.badgeWarn}>Read-only: management or admin required</span>}
+            </div>
+            <div style={styles.formGrid}>
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Employee Code" value={employeeForm.employeeCode} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, employeeCode: e.target.value }))} />
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="First Name" value={employeeForm.firstName} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, firstName: e.target.value }))} />
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Last Name" value={employeeForm.lastName} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, lastName: e.target.value }))} />
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Display Name" value={employeeForm.displayName} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, displayName: e.target.value }))} />
+              <select disabled={!canManageEmployees} style={styles.input} value={employeeForm.role} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, role: e.target.value as UserRole }))}>
+                {["Admin", "Management", "Service Advisor", "Office Staff", "Technician", "Mechanic", "Reception"].map((role) => <option key={role} value={role}>{role}</option>)}
+              </select>
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Department" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} />
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Phone" value={employeeForm.phone} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, phone: e.target.value }))} />
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Username" value={employeeForm.username} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, username: e.target.value }))} />
+              <input disabled={!canManageEmployees} style={styles.input} placeholder="Password" value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} />
+            </div>
+            <div style={{ ...styles.wrapRow, marginTop: 12 }}>
+              <label style={styles.checkboxRow}>
+                <input disabled={!canManageEmployees} type="checkbox" checked={employeeForm.active} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, active: e.target.checked }))} />
+                <span>Active</span>
+              </label>
+              <label style={styles.checkboxRow}>
+                <input disabled={!canManageEmployees} type="checkbox" checked={employeeForm.mustChangePassword} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, mustChangePassword: e.target.checked }))} />
+                <span>Must Change Password</span>
+              </label>
+            </div>
+
+            <div style={{ ...styles.innerBlock, marginTop: 12 }}>
+              <div style={styles.rowBetween}>
+                <div style={{ fontWeight: 700 }}>Allowed Views / Permission Lock</div>
+                {canManagePermissions ? (
+                  <div style={styles.wrapRow}>
+                    <button style={styles.secondaryButton} onClick={() => applyAllowedViewPreset(employeeForm.role)}>Use Role Default</button>
+                    <button style={styles.secondaryButton} onClick={() => setEmployeeForm((prev) => ({ ...prev, allowedViews: [...ALL_VIEWS] }))}>Allow All</button>
+                  </div>
+                ) : (
+                  <span style={styles.badgeMuted}>Admin only</span>
+                )}
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 13, marginTop: 6 }}>
+                When blank, the app uses the default views for the selected role. Custom view locks override the role default.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 12 }}>
+                {ALL_VIEWS.map((targetView) => {
+                  const checked = (employeeForm.allowedViews?.length ? employeeForm.allowedViews : getDefaultAllowedViewsForRole(employeeForm.role)).includes(targetView);
+                  const customChecked = Boolean(employeeForm.allowedViews?.includes(targetView));
+                  return (
+                    <label key={targetView} style={{ ...styles.checkboxRow, border: "1px solid #e5e7eb", borderRadius: 12, padding: "8px 10px", background: customChecked ? "#eff6ff" : "#f8fafc" }}>
+                      <input
+                        disabled={!canManagePermissions}
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const base = employeeForm.allowedViews?.length ? employeeForm.allowedViews : getDefaultAllowedViewsForRole(employeeForm.role);
+                          const next = e.target.checked
+                            ? Array.from(new Set([...base, targetView]))
+                            : base.filter((entry) => entry !== targetView);
+                          setEmployeeForm((prev) => ({ ...prev, allowedViews: next }));
+                        }}
+                      />
+                      <span>{VIEW_TITLES[targetView]?.title || targetView}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ ...styles.wrapRow, marginTop: 12 }}>
+              <button disabled={!canManageEmployees} style={styles.primaryButton} onClick={saveEmployee}>{selectedEmployeeId ? "Update Employee" : "Save Employee"}</button>
+              <button style={styles.secondaryButton} onClick={resetEmployeeForm}>Clear Form</button>
+            </div>
+          </div>
+
+          <div style={styles.cardBlock}>
+            <div style={styles.rowBetween}>
+              <div style={{ fontWeight: 700 }}>Employee List</div>
+              <div style={styles.wrapRow}>
+                <input style={{ ...styles.input, minWidth: 180 }} placeholder="Search employee" value={employeeSearch} onChange={(e) => setEmployeeSearch(e.target.value)} />
+                <select style={styles.input} value={attendanceStatusFilter} onChange={(e) => setAttendanceStatusFilter(e.target.value as "All" | AttendanceStatus)}>
+                  {["All", "Present", "Late", "Absent", "Half Day", "On Leave"].map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+              {sortedEmployees.map((employee) => {
+                const employeeAttendance = attendanceMapForBoardDate[employee.id];
+                const employeeAllowedViews = employee.allowedViews?.length ? employee.allowedViews : getDefaultAllowedViewsForRole(employee.role);
+                return (
+                  <div key={employee.id} style={styles.logRow}>
+                    <div style={styles.rowBetween}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{employee.displayName}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>{employee.employeeCode} • {employee.username} • {employee.role}</div>
+                      </div>
+                      <div style={styles.wrapRow}>
+                        <span style={employee.active ? styles.badgeGood : styles.badgeMuted}>{employee.active ? "Active" : "Inactive"}</span>
+                        <span style={employeeAttendance?.status === "Late" ? styles.badgeWarn : employeeAttendance?.status === "Present" ? styles.badgeGood : employeeAttendance?.status === "Half Day" ? styles.badgeBlue : styles.badgeMuted}>
+                          {employeeAttendance?.status || "No Record"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 13, color: "#374151" }}>
+                      <div>Department: {employee.department || "-"}</div>
+                      <div>Phone: {employee.phone || "-"}</div>
+                      <div>Check In / Out: {employeeAttendance?.checkInTime || "-"} / {employeeAttendance?.checkOutTime || "-"}</div>
+                      <div>Allowed Views: {employeeAllowedViews.map((targetView) => VIEW_TITLES[targetView]?.title || targetView).join(", ")}</div>
+                    </div>
+                    <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+                      <button style={styles.secondaryButton} onClick={() => startEmployeeEdit(employee)}>Edit</button>
+                      {canManageEmployees && <button style={styles.secondaryButton} onClick={() => toggleEmployeeActive(employee.id)}>{employee.active ? "Set Inactive" : "Set Active"}</button>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.cardBlock}>
+          <div style={styles.rowBetween}>
+            <div>
+              <div style={{ fontWeight: 700 }}>Daily Attendance Board</div>
+              <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+                Check in, check out, update status, and prepare the technician board from employee attendance.
+              </div>
+            </div>
+            <div style={styles.wrapRow}>
+              <input style={styles.input} type="date" value={attendanceBoardDate} onChange={(e) => setAttendanceBoardDate(e.target.value)} />
+              <button style={styles.secondaryButton} onClick={() => setAttendanceBoardDate(getTodayDateString())}>Today</button>
+              {!canManageAttendance && <span style={styles.badgeWarn}>Read-only attendance</span>}
+            </div>
+          </div>
+
+          <div style={{ ...styles.statsGrid, marginTop: 14 }}>
+            <MetricCard title="Present" value={attendanceBoardSummary.present} />
+            <MetricCard title="Late" value={attendanceBoardSummary.late} />
+            <MetricCard title="Half Day" value={attendanceBoardSummary.halfDay} />
+            <MetricCard title="On Leave" value={attendanceBoardSummary.onLeave} />
+          </div>
+
+          <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+            {sortedEmployees.map((employee) => {
+              const record = attendanceMapForBoardDate[employee.id];
+              return (
+                <div key={`attendance-${employee.id}`} style={styles.logRow}>
+                  <div style={styles.rowBetween}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{employee.displayName}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>{employee.role} • {employee.department || "-"}</div>
+                    </div>
+                    <div style={styles.wrapRow}>
+                      <span style={record?.status === "Present" ? styles.badgeGood : record?.status === "Late" ? styles.badgeWarn : record?.status === "Half Day" ? styles.badgeBlue : styles.badgeMuted}>
+                        {record?.status || "Absent"}
+                      </span>
+                      <span style={styles.badgeMuted}>In: {record?.checkInTime || "-"}</span>
+                      <span style={styles.badgeMuted}>Out: {record?.checkOutTime || "-"}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ ...styles.wrapRow, marginTop: 10 }}>
+                    <button disabled={!canManageAttendance} style={styles.primaryButton} onClick={() => handleEmployeeCheckIn(employee)}>Check In</button>
+                    <button disabled={!canManageAttendance} style={styles.secondaryButton} onClick={() => handleEmployeeCheckOut(employee)}>Check Out</button>
+                    <button disabled={!canManageAttendance} style={styles.secondaryButton} onClick={() => setEmployeeAttendanceStatus(employee, "Late")}>Late</button>
+                    <button disabled={!canManageAttendance} style={styles.secondaryButton} onClick={() => setEmployeeAttendanceStatus(employee, "Half Day")}>Half Day</button>
+                    <button disabled={!canManageAttendance} style={styles.secondaryButton} onClick={() => setEmployeeAttendanceStatus(employee, "On Leave")}>On Leave</button>
+                    <button disabled={!canManageAttendance} style={styles.secondaryButton} onClick={() => setEmployeeAttendanceStatus(employee, "Absent")}>Absent</button>
+                  </div>
+
+                  <div style={{ ...styles.formGrid, marginTop: 10 }}>
+                    <input
+                      disabled={!canManageAttendance}
+                      style={styles.input}
+                      placeholder="Attendance note"
+                      value={record?.note || ""}
+                      onChange={(e) => updateAttendanceNote(employee, e.target.value)}
+                    />
+                    <input disabled style={styles.input} value={record?.encodedBy || "-"} placeholder="Encoded by" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   /* =========================
      LOGIN
   ========================= */
@@ -5545,12 +8776,27 @@ export default function App() {
           <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
             <div style={styles.metricMini}>
               <div style={styles.mutedLabel}>Access</div>
-              <strong>Unified staff login • polished workflow</strong>
+              <strong>Employee login + permissions + attendance foundation</strong>
             </div>
           </div>
-          <button style={{ ...styles.primaryButton, width: "100%", justifyContent: "center", marginTop: 18 }} onClick={() => setUser(USERS[0])}>
-            Sign In as {USERS[0].role}
+          <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+            <input style={styles.input} placeholder="Username" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} />
+            <input style={styles.input} type="password" placeholder="Password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }} />
+            {loginError && <div style={{ color: "#dc2626", fontSize: 13 }}>{loginError}</div>}
+          </div>
+          <button style={{ ...styles.primaryButton, width: "100%", justifyContent: "center", marginTop: 18 }} onClick={handleLogin}>
+            Sign In
           </button>
+          <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>Quick Access</div>
+            <div style={styles.wrapRow}>
+              {employees.filter((employee) => employee.active).slice(0, 3).map((employee) => (
+                <button key={employee.id} style={styles.secondaryButton} onClick={() => quickLoginAs(employee)}>
+                  {employee.role}: {employee.username}
+                </button>
+              ))}
+            </div>
+          </div>
           <div style={styles.loginFooter}>Designed by Jomar Carlo Orlanda</div>
         </div>
       </div>
@@ -5562,39 +8808,42 @@ export default function App() {
   ========================= */
 
   return (
-    <div style={styles.appWrap}>
-      <aside style={styles.sidebar}>
+    <div style={{ ...styles.appWrap, flexDirection: isCompact ? "column" : "row" }}>
+      <aside style={{ ...styles.sidebar, width: isCompact ? "100%" : styles.sidebar.width, minWidth: isCompact ? "100%" : styles.sidebar.minWidth, padding: isPhone ? 12 : isTablet ? 14 : 18, position: isCompact ? "sticky" : "relative", top: isCompact ? 0 : undefined, zIndex: isCompact ? 20 : undefined, maxHeight: isCompact ? "unset" : "100vh" }}>
         <div style={styles.sidebarBrand}>
           <div style={styles.sidebarBrandTitle}>{SHOP_NAME}</div>
           <div style={styles.sidebarBrandSub}>{SHOP_SLOGAN}</div>
           <div style={{ ...styles.loginEyebrow, marginBottom: 0, marginTop: 10 }}>{BUILD_VERSION}</div>
         </div>
 
-        <div style={styles.sidebarSection}>
-          <NavButton icon={<Home size={16} />} label="Dashboard" isActive={view === "dashboard"} onClick={() => setView("dashboard")} />
-          <NavButton icon={<ClipboardList size={16} />} label="Inspection" isActive={view === "inspection"} onClick={() => setView("inspection")} />
-          <NavButton icon={<FileText size={16} />} label="Approval" isActive={view === "approval"} onClick={() => setView("approval")} />
-          <NavButton icon={<Car size={16} />} label="RO" isActive={view === "ro"} onClick={() => setView("ro")} />
-          <NavButton icon={<Package size={16} />} label="Parts" isActive={view === "parts"} onClick={() => setView("parts")} />
-          <NavButton icon={<Wrench size={16} />} label="Shop" isActive={view === "shop"} onClick={() => setView("shop")} />
-          <NavButton icon={<Users size={16} />} label="Tech" isActive={view === "tech"} onClick={() => setView("tech")} />
-          <NavButton icon={<Receipt size={16} />} label="Billing" isActive={view === "billing"} onClick={() => setView("billing")} />
-          <NavButton icon={<History size={16} />} label="History" isActive={view === "history"} onClick={() => setView("history")} />
-          <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" isActive={view === "purchasing"} onClick={() => setView("purchasing")} />
-          <NavButton icon={<Warehouse size={16} />} label="Inventory" isActive={view === "inventory"} onClick={() => setView("inventory")} />
+        <div style={{ ...styles.sidebarSection, gridTemplateColumns: isCompact ? "repeat(2, minmax(0, 1fr))" : "1fr" }}>
+          {canAccessViewForUser(user, "dashboard") && <NavButton icon={<Home size={16} />} label="Dashboard" isActive={view === "dashboard"} onClick={() => setView("dashboard")} />}
+          {canAccessViewForUser(user, "vehicleIntake") && <NavButton icon={<Car size={16} />} label="Vehicle Intake" isActive={view === "vehicleIntake"} onClick={() => setView("vehicleIntake")} />}
+          {canAccessViewForUser(user, "inspection") && <NavButton icon={<ClipboardList size={16} />} label="Inspection" isActive={view === "inspection"} onClick={() => setView("inspection")} />}
+          {canAccessViewForUser(user, "approval") && <NavButton icon={<FileText size={16} />} label="Approval" isActive={view === "approval"} onClick={() => setView("approval")} />}
+          {canAccessViewForUser(user, "ro") && <NavButton icon={<Car size={16} />} label="RO" isActive={view === "ro"} onClick={() => setView("ro")} />}
+          {canAccessViewForUser(user, "parts") && <NavButton icon={<Package size={16} />} label="Parts" isActive={view === "parts"} onClick={() => setView("parts")} />}
+          {canAccessViewForUser(user, "shop") && <NavButton icon={<Wrench size={16} />} label="Shop" isActive={view === "shop"} onClick={() => setView("shop")} />}
+          {canAccessViewForUser(user, "tech") && <NavButton icon={<Users size={16} />} label="Tech" isActive={view === "tech"} onClick={() => setView("tech")} />}
+          {canAccessViewForUser(user, "billing") && <NavButton icon={<Receipt size={16} />} label="Billing" isActive={view === "billing"} onClick={() => setView("billing")} />}
+          {canAccessViewForUser(user, "history") && <NavButton icon={<History size={16} />} label="History" isActive={view === "history"} onClick={() => setView("history")} />}
+          {canAccessViewForUser(user, "purchasing") && <NavButton icon={<ShoppingCart size={16} />} label="Purchasing" isActive={view === "purchasing"} onClick={() => setView("purchasing")} />}
+          {canAccessViewForUser(user, "inventory") && <NavButton icon={<Warehouse size={16} />} label="Inventory" isActive={view === "inventory"} onClick={() => setView("inventory")} />}
+          {canAccessViewForUser(user, "employees") && <NavButton icon={<UserCog size={16} />} label="Employees" isActive={view === "employees"} onClick={() => setView("employees")} />}
         </div>
 
         <div style={styles.sidebarFooter}>
           <div style={styles.mutedLabel}>Signed in as</div>
-          <div style={{ fontWeight: 700, color: "#e5eefb" }}>{user.username}</div>
+          <div style={{ fontWeight: 700, color: "#e5eefb" }}>{user.displayName || user.username}</div>
           <div style={{ color: "#9fb6d1", fontSize: 12 }}>{user.role}</div>
+          <div style={{ color: "#9fb6d1", fontSize: 12 }}>{user.username}</div>
         </div>
       </aside>
 
-      <main style={styles.main}>
-        <div style={styles.topbar}>
+      <main style={{ ...styles.main, padding: isPhone ? 12 : isTablet ? 14 : 18 }}>
+        <div style={{ ...styles.topbar, alignItems: isCompact ? "flex-start" : "center" }}>
           <div>
-            <div style={styles.topbarTitle}>{currentViewMeta.title}</div>
+            <div style={{ ...styles.topbarTitle, fontSize: isPhone ? 22 : isTablet ? 24 : 28 }}>{currentViewMeta.title}</div>
             <div style={styles.topbarSubtitle}>{currentViewMeta.subtitle}</div>
           </div>
           <div style={styles.topbarMeta}>
@@ -5603,18 +8852,27 @@ export default function App() {
           </div>
         </div>
 
-        <div style={styles.pageSurface}>
-          {view === "dashboard" && <DashboardView />}
-          {view === "inspection" && <InspectionView />}
-          {view === "approval" && <ApprovalView />}
-          {view === "ro" && <ROView />}
-          {view === "parts" && <PartsView />}
-          {view === "shop" && <ShopView />}
-          {view === "tech" && <TechView />}
-          {view === "billing" && <BillingView />}
-          {view === "history" && <HistoryView />}
-          {view === "purchasing" && <PurchasingView />}
-          {view === "inventory" && <InventoryView />}
+        {draftBanner && (
+          <div style={{ ...styles.cardBlock, marginBottom: 12, border: "1px solid #bfdbfe", background: "#eff6ff" }}>
+            <div style={styles.rowBetween}>
+              <div>
+                <div style={{ fontWeight: 700, color: "#1d4ed8" }}>Draft Recovery</div>
+                <div style={{ color: "#334155", fontSize: 13 }}>{draftBanner}</div>
+                {lastAutoSavedAt && (
+                  <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>
+                    Last auto-saved: {new Date(lastAutoSavedAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+              <div style={styles.wrapRow}>
+                <button style={styles.secondaryButton} onClick={exportSystemBackup}>Export Backup</button>
+                <button style={styles.secondaryButton} onClick={clearDraftRecovery}>Clear Drafts</button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div style={{ ...styles.pageSurface, padding: isPhone ? 12 : isTablet ? 14 : 18, borderRadius: isPhone ? 16 : 24 }}>
+          {renderSafeCurrentView()}
         </div>
       </main>
     </div>
@@ -5804,7 +9062,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     background: "rgba(255,255,255,0.02)",
     color: "#dbe4f0",
-    padding: "11px 12px",
+    padding: "12px 12px",
     cursor: "pointer",
     textAlign: "left",
     fontWeight: 700,
@@ -5819,7 +9077,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     background: "linear-gradient(135deg, rgba(37,99,235,0.26), rgba(96,165,250,0.16))",
     color: "#ffffff",
-    padding: "11px 12px",
+    padding: "12px 12px",
     cursor: "pointer",
     textAlign: "left",
     fontWeight: 800,
@@ -5932,9 +9190,10 @@ const styles: Record<string, React.CSSProperties> = {
   input: {
     border: "1px solid #cfd9e5",
     borderRadius: 12,
-    padding: "11px 12px",
+    padding: "12px 12px",
     background: "#ffffff",
-    minWidth: 140,
+    minWidth: 0,
+    width: "100%",
     boxSizing: "border-box",
     color: "#0f172a",
     boxShadow: "inset 0 1px 2px rgba(15, 23, 42, 0.03)",
@@ -5945,7 +9204,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     border: "none",
     borderRadius: 12,
-    padding: "11px 15px",
+    padding: "12px 15px",
     background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
     color: "#ffffff",
     cursor: "pointer",
@@ -5958,7 +9217,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     border: "1px solid #d1dbe8",
     borderRadius: 12,
-    padding: "11px 14px",
+    padding: "12px 14px",
     background: "#ffffff",
     color: "#0f172a",
     cursor: "pointer",
@@ -5970,7 +9229,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     border: "none",
     borderRadius: 12,
-    padding: "11px 14px",
+    padding: "12px 14px",
     background: "linear-gradient(135deg, #16a34a, #15803d)",
     color: "#ffffff",
     cursor: "pointer",
@@ -5982,7 +9241,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     border: "none",
     borderRadius: 12,
-    padding: "11px 14px",
+    padding: "12px 14px",
     background: "linear-gradient(135deg, #dc2626, #b91c1c)",
     color: "#ffffff",
     cursor: "pointer",
@@ -6159,6 +9418,15 @@ const styles: Record<string, React.CSSProperties> = {
     position: "relative",
     zIndex: 1,
     backdropFilter: "blur(12px)",
+  },
+  loginUpdateItem: {
+    fontSize: 12,
+    color: "#475569",
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: 10,
+    padding: "8px 10px",
+    lineHeight: 1.35,
   },
   loginEyebrow: {
     display: "inline-flex",
