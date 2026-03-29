@@ -728,7 +728,7 @@ const USERS: User[] = [
 
 const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
-const BUILD_VERSION = "Phase 19E — Under-Hood Auto Recommendations + Note Chips";
+const BUILD_VERSION = "Phase 20B — Worklines + Technician Assignment";
 
 const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Business intelligence, live operations, and management insights." },
@@ -1742,6 +1742,23 @@ function lineHasTechnician(line: ROWorkLine, technicianName: string): boolean {
     getPrimaryTechnicianName(line).toLowerCase() === name ||
     getSupportingTechnicianNames(line).some((support) => support.toLowerCase() === name)
   );
+}
+
+function getAssignedTechnicianCount(line: ROWorkLine): number {
+  const primary = getPrimaryTechnicianName(line);
+  return (primary ? 1 : 0) + getSupportingTechnicianNames(line).length;
+}
+
+function canWorkLineStart(line: ROWorkLine): boolean {
+  return getAssignedTechnicianCount(line) > 0 && line.approvalStatus !== "Declined";
+}
+
+function getEligiblePrimaryTechnicians(technicians: TechnicianProfile[]): TechnicianProfile[] {
+  return technicians.filter((tech) => tech.role !== "OJT");
+}
+
+function getTechnicianOpenAssignmentCount(ros: RepairOrder[], technicianName: string): number {
+  return ros.reduce((sum, ro) => sum + ro.workLines.filter((line) => lineHasTechnician(line, technicianName) && !["Done", "Cancelled"].includes(line.status)).length, 0);
 }
 
 function normalizeLegacyRepairOrder(ro: Partial<RepairOrder>): RepairOrder {
@@ -3443,6 +3460,14 @@ export default function App() {
     const target = ros.find((r) => r.id === roId);
     if (!target || !canEditRo(target)) return;
 
+    const currentLine = target.workLines.find((line) => line.id === wlId);
+    if (!currentLine) return;
+    const startCandidate = getWorkLineEstimate({ ...currentLine, ...patch });
+    if (patch.status === "In Progress" && !canWorkLineStart(startCandidate)) {
+      alert("Assign at least one technician before starting the work line.");
+      return;
+    }
+
     const nextRos = ros.map((ro) => {
       if (ro.id !== roId) return ro;
 
@@ -4886,6 +4911,29 @@ export default function App() {
     () => technicianKpis.slice().sort((a, b) => b.rankingScore - a.rankingScore),
     [technicianKpis],
   );
+
+  const assignmentSummary = useMemo(() => {
+    const allLines = ros.flatMap((ro) => ro.workLines.map((line) => ({ ro, line })));
+    const unassignedLines = allLines.filter(({ line }) => getAssignedTechnicianCount(line) === 0 && line.approvalStatus !== "Declined" && line.status !== "Cancelled");
+    const waitingStartLines = allLines.filter(({ line }) => canWorkLineStart(line) && ["Pending", "Approved", "Ready"].includes(line.status));
+    const activeAssignments = allLines.filter(({ line }) => line.status === "In Progress");
+    const overloadedTechs = technicians.filter((tech) => getTechnicianOpenAssignmentCount(ros, tech.name) >= 3);
+    return {
+      unassignedLines,
+      waitingStartLines,
+      activeAssignments,
+      overloadedTechs,
+    };
+  }, [ros, technicians]);
+
+  const technicianAssignmentBoard = useMemo(() => {
+    return technicians.map((tech) => {
+      const openAssignments = getTechnicianOpenAssignmentCount(ros, tech.name);
+      const activeAssignments = ros.flatMap((ro) => ro.workLines.filter((line) => lineHasTechnician(line, tech.name) && line.status === "In Progress")).length;
+      const readyAssignments = ros.flatMap((ro) => ro.workLines.filter((line) => lineHasTechnician(line, tech.name) && ["Ready", "Approved", "Pending"].includes(line.status))).length;
+      return { techName: tech.name, openAssignments, activeAssignments, readyAssignments };
+    });
+  }, [ros, technicians]);
 
   const technicianSummary = useMemo(() => {
     const totalBilledHours = round2(technicianKpis.reduce((sum, tech) => sum + tech.billedHours, 0));
@@ -6784,12 +6832,14 @@ export default function App() {
                       </select>
                       <input
                         style={styles.input}
+                        list="primary-tech-options"
                         placeholder="Primary Technician"
                         value={getPrimaryTechnicianName(line)}
                         onChange={(e) => updatePrimaryTechnician(ro.id, line.id, e.target.value)}
                       />
                       <input
                         style={styles.input}
+                        list="support-tech-options"
                         placeholder="Supporting Technicians (comma separated)"
                         value={getSupportingTechnicianNames(line).join(", ")}
                         onChange={(e) => updateSupportingTechnicians(ro.id, line.id, e.target.value)}
@@ -6799,6 +6849,9 @@ export default function App() {
                         {line.partsSummary}
                       </span>
                       {line.status === "Ready" && <span style={styles.badgeGood}>Ready to Start</span>}
+                      <span style={canWorkLineStart(line) ? styles.badgeGood : styles.badgeWarn}>
+                        {canWorkLineStart(line) ? "Dispatch Ready" : "Assign Technician First"}
+                      </span>
                     </div>
 
                     <div style={{ ...styles.wrapRow, marginTop: 10 }}>
@@ -7151,7 +7204,12 @@ export default function App() {
               {ro.workLines.slice(0, 3).map((line) => (
                 <div key={line.id} style={styles.shopMiniRow}>
                   <span>{line.label}</span>
-                  <span style={styles.badgeMuted}>{line.status}</span>
+                  <div style={styles.wrapRow}>
+                    <span style={styles.badgeMuted}>{line.status}</span>
+                    <span style={getAssignedTechnicianCount(line) > 0 ? styles.badgeGood : styles.badgeWarn}>
+                      {getAssignedTechnicianCount(line) > 0 ? `${getAssignedTechnicianCount(line)} tech` : 'Unassigned'}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -7170,6 +7228,42 @@ export default function App() {
         <MetricCard title="Actively Working" value={technicianSummary.workingTechs} />
         <MetricCard title="Completed Lines" value={technicianSummary.totalCompleted} />
         <MetricCard title="Avg Efficiency %" value={technicianSummary.avgEfficiency} />
+      </div>
+
+      <div style={{ ...styles.statsGrid, marginTop: 16 }}>
+        <MetricCard title="Unassigned Lines" value={assignmentSummary.unassignedLines.length} />
+        <MetricCard title="Ready to Start" value={assignmentSummary.waitingStartLines.length} />
+        <MetricCard title="Active Assignments" value={assignmentSummary.activeAssignments.length} />
+        <MetricCard title="Overloaded Techs" value={assignmentSummary.overloadedTechs.length} />
+      </div>
+
+      <div style={{ ...styles.cardBlock, marginTop: 16 }}>
+        <div style={styles.rowBetween}>
+          <div>
+            <div style={{ fontWeight: 700 }}>Workline Assignment Queue</div>
+            <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+              Unassigned and ready lines are shown here so dispatching can be done before work starts.
+            </div>
+          </div>
+          <button style={styles.secondaryButton} onClick={() => setView("ro")}>Open Repair Orders</button>
+        </div>
+        <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+          {assignmentSummary.unassignedLines.slice(0, 8).map(({ ro, line }) => (
+            <div key={`${ro.id}-${line.id}`} style={styles.lookupCard}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{ro.roNumber} • {line.label}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>{ro.customer || "No Customer"} • {ro.vehicle || "No Vehicle"} • {line.priority}</div>
+              </div>
+              <div style={styles.wrapRow}>
+                <span style={styles.badgeWarn}>Needs technician</span>
+                <button style={styles.secondaryButton} onClick={() => setView("ro")}>Assign in RO</button>
+              </div>
+            </div>
+          ))}
+          {assignmentSummary.unassignedLines.length === 0 && (
+            <div style={{ color: "#6b7280", fontSize: 13 }}>All active work lines have at least one assigned technician.</div>
+          )}
+        </div>
       </div>
 
       <div style={{ ...styles.cardBlock, marginTop: 16 }}>
@@ -7269,6 +7363,10 @@ export default function App() {
                 <div>Average Hours / Job: {tech.avgHoursPerJob}</div>
                 <div>Comebacks: {tech.comebacks}</div>
                 <div>Active Jobs: {tech.active}</div>
+                <div>Open Assignments: {technicianAssignmentBoard.find((item) => item.techName === tech.name)?.openAssignments || 0}</div>
+                <div>Ready Queue: {technicianAssignmentBoard.find((item) => item.techName === tech.name)?.readyAssignments || 0}</div>
+                <div>Primary Assignments: {tech.primaryAssignments}</div>
+                <div>Supporting Assignments: {tech.supportingAssignments}</div>
                 <div>Labor Revenue: ₱{tech.laborRevenue.toLocaleString()}</div>
                 <div>Total Estimated Value: ₱{tech.estimatedValue.toLocaleString()}</div>
                 <div>Utilization Score: {tech.utilizationScore}</div>
@@ -7279,6 +7377,9 @@ export default function App() {
       </div>
     </div>
   );
+
+  const eligiblePrimaryTechnicians = useMemo(() => getEligiblePrimaryTechnicians(technicians), [technicians]);
+  const allTechnicianNames = useMemo(() => technicians.map((tech) => tech.name), [technicians]);
 
   const CustomerSummaryView = () => (
     <div>
@@ -8557,6 +8658,16 @@ export default function App() {
           {renderSafeCurrentView()}
         </div>
       </main>
+      <datalist id="primary-tech-options">
+        {eligiblePrimaryTechnicians.map((tech) => (
+          <option key={`primary-${tech.id}`} value={tech.name}>{tech.role}</option>
+        ))}
+      </datalist>
+      <datalist id="support-tech-options">
+        {allTechnicianNames.map((techName) => (
+          <option key={`support-${techName}`} value={techName} />
+        ))}
+      </datalist>
     </div>
   );
 }
