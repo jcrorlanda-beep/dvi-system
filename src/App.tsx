@@ -730,67 +730,6 @@ const SHOP_NAME = "Northeast Car Care Centre";
 const SHOP_SLOGAN = "Professional Care For Every Journey";
 const BUILD_VERSION = "Phase 19E — Under-Hood Auto Recommendations + Note Chips";
 
-const APP_STORAGE_KEYS = {
-  employees: APP_STORAGE_KEYS.employees,
-  attendanceRecords: "phase18a_attendance_records",
-  technicians: APP_STORAGE_KEYS.technicians,
-  suppliers: APP_STORAGE_KEYS.suppliers,
-  bids: APP_STORAGE_KEYS.bids,
-  inventory: APP_STORAGE_KEYS.inventory,
-  ros: APP_STORAGE_KEYS.ros,
-  parts: APP_STORAGE_KEYS.parts,
-  backJobs: APP_STORAGE_KEYS.backJobs,
-  activityLogs: APP_STORAGE_KEYS.activityLogs,
-  salesEntries: APP_STORAGE_KEYS.salesEntries,
-  smsGateway: APP_STORAGE_KEYS.smsGateway,
-  vehicleCatalog: APP_STORAGE_KEYS.vehicleCatalog,
-  vehicleCatalogUrl: APP_STORAGE_KEYS.vehicleCatalogUrl,
-} as const;
-
-const MODULE_BEHAVIOR_RULES: Record<ViewKey, { allowCreate: boolean; allowInlineEdit: boolean; supportsLookup: boolean; requiresActiveUser: boolean }> = {
-  dashboard: { allowCreate: false, allowInlineEdit: false, supportsLookup: false, requiresActiveUser: true },
-  vehicleIntake: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  inspection: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  approval: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  ro: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  parts: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  shop: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  tech: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  billing: { allowCreate: false, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  customerSummary: { allowCreate: false, allowInlineEdit: false, supportsLookup: true, requiresActiveUser: true },
-  history: { allowCreate: false, allowInlineEdit: false, supportsLookup: true, requiresActiveUser: true },
-  backJob: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  activityLogs: { allowCreate: false, allowInlineEdit: false, supportsLookup: true, requiresActiveUser: true },
-  salesReports: { allowCreate: true, allowInlineEdit: true, supportsLookup: false, requiresActiveUser: true },
-  purchasing: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  inventory: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-  employees: { allowCreate: true, allowInlineEdit: true, supportsLookup: true, requiresActiveUser: true },
-};
-
-const VIEW_MASTER_DATA_GROUPS: Record<ViewKey, string[]> = {
-  dashboard: ["Repair Orders", "Payments", "Manager Alerts"],
-  vehicleIntake: ["Plate History", "Customer History", "Vehicle Catalog"],
-  inspection: ["Intake Draft", "Service Matrix", "Inspection Photos"],
-  approval: ["Customer Decisions", "Estimate Totals"],
-  ro: ["Repair Orders", "Work Lines", "Assignments"],
-  parts: ["Part Requests", "Supplier Bids", "Inventory Allocations"],
-  shop: ["Bay Status", "Live Jobs"],
-  tech: ["Technician Load", "Assignments", "Productivity"],
-  billing: ["Invoices", "Payments", "Release Gates"],
-  customerSummary: ["Customer Summary", "Attachments"],
-  history: ["Plate History", "Customer History", "Return Jobs"],
-  backJob: ["Back Jobs", "Root Cause Tracking"],
-  activityLogs: ["Audit Trail"],
-  salesReports: ["Daily Sales", "Monthly Projection"],
-  purchasing: ["Suppliers", "Bids"],
-  inventory: ["Inventory", "Restock Alerts"],
-  employees: ["Employees", "Attendance", "Permissions"],
-};
-
-const VIEW_LABELS: Record<ViewKey, string> = Object.fromEntries(
-  Object.entries(VIEW_TITLES).map(([key, value]) => [key, value.title]),
-) as Record<ViewKey, string>;
-
 const VIEW_TITLES: Record<ViewKey, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Business intelligence, live operations, and management insights." },
   vehicleIntake: { title: "Vehicle Intake", subtitle: "Required vehicle details first, customer details can be completed later." },
@@ -2230,73 +2169,6 @@ function buildCustomerDisplayName(form: InspectionForm): string {
   return form.companyName.trim() || fullName || form.customer.trim();
 }
 
-function buildCustomerLookupText(ro: RepairOrder): string {
-  return [
-    ro.customer,
-    ro.customerFirstName,
-    ro.customerLastName,
-    ro.customerPhone,
-    ro.customerEmail,
-    ro.plate,
-    ro.vehicle,
-  ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(" ");
-}
-
-function buildInspectionFormFromRO(ro: RepairOrder): InspectionForm {
-  const selectedIssues = ro.workLines.reduce((acc, line) => {
-    const issue = INSPECTION_ISSUES.find((item) => item.category.toLowerCase() === String(line.category || "").toLowerCase());
-    if (issue) acc[issue.key] = true;
-    return acc;
-  }, { ...EMPTY_INSPECTION_SELECTIONS } as InspectionSelection);
-
-  const companyLike = detectCompanyLikeName(ro.customer || "");
-  return {
-    ...DEFAULT_INSPECTION_FORM,
-    plate: ro.plate || "",
-    vehicle: ro.vehicle || "",
-    vehicleMake: ro.vehicleMake || "",
-    vehicleModel: ro.vehicleModel || "",
-    vehicleYear: ro.vehicleYear || "",
-    fuelType: (ro.fuelType || "") as FuelType | "",
-    transmissionType: (ro.transmissionType || "") as TransmissionType | "",
-    customer: ro.customer || "",
-    customerFirstName: ro.customerFirstName || "",
-    customerLastName: ro.customerLastName || "",
-    customerPhone: ro.customerPhone || "",
-    customerEmail: ro.customerEmail || "",
-    municipality: ro.municipality || "",
-    region: ro.region || "",
-    odometer: ro.odometer || "",
-    bay: ro.bay || "Bay 1",
-    priority: ro.priority || "Normal",
-    issues: selectedIssues,
-    isReturnJob: Boolean(ro.isReturnJob),
-    returnReason: ro.returnReason || "",
-    linkedPreviousRoId: ro.linkedPreviousRoId || "",
-    inspectionPhotos: Array.isArray(ro.inspectionPhotos) ? ro.inspectionPhotos : [],
-    initialExteriorPhotos: Array.isArray(ro.initialExteriorPhotos) ? ro.initialExteriorPhotos : [],
-    takeNotes: Array.isArray(ro.takeNotes) && ro.takeNotes.length ? ro.takeNotes : createDefaultTakeNotes(),
-    arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS, ...(ro.arrivalChecks || {}) },
-    tireInspection: ensureTireInspectionMap(ro.tireInspection),
-    underHoodInspection: ensureUnderHoodInspectionMap((ro as any).underHoodInspection),
-    customerVisibleFindings: ro.customerVisibleFindings || "",
-    recommendationsSummary: ro.recommendationsSummary || "",
-    serviceAdvisorNotes: ro.serviceAdvisorNotes || "",
-    customerType: companyLike ? "Company" : "Person",
-    companyName: companyLike ? ro.customer || "" : "",
-    municipalityGroup:
-      ro.municipality && ILOCOS_SUR_MUNICIPALITIES.includes(ro.municipality)
-        ? "Ilocos Sur"
-        : ro.municipality && ABRA_MUNICIPALITIES.includes(ro.municipality)
-        ? "Abra"
-        : "",
-    customerMunicipality: ro.municipality || "",
-  };
-}
-
 function getCustomerSummaryAttachments(ro: RepairOrder) {
   const inspection = (ro.inspectionPhotos || []).map((photo) => ({
     label: `Inspection • ${photo.label}`,
@@ -2907,49 +2779,48 @@ export default function App() {
   const [inspectionForm, setInspectionForm] = useState<InspectionForm>(DEFAULT_INSPECTION_FORM);
   const [paymentForms, setPaymentForms] = useState<Record<string, PaymentForm>>({});
   const [vehicleCatalog, setVehicleCatalog] = useState<VehicleCatalogEntry[]>(
-    () => normalizeLegacyVehicleCatalog(safeLoad(APP_STORAGE_KEYS.vehicleCatalog, DEFAULT_PH_VEHICLE_CATALOG)),
+    () => normalizeLegacyVehicleCatalog(safeLoad("phase16b_vehicle_catalog", DEFAULT_PH_VEHICLE_CATALOG)),
   );
   const [vehicleCatalogUrl, setVehicleCatalogUrl] = useState<string>(
-    () => normalizeVehicleCatalogUrl(safeLoad(APP_STORAGE_KEYS.vehicleCatalogUrl, "")),
+    () => normalizeVehicleCatalogUrl(safeLoad("phase16b_vehicle_catalog_url", "")),
   );
   const [vehicleCatalogSyncing, setVehicleCatalogSyncing] = useState(false);
   const [smsGatewaySettings, setSmsGatewaySettings] = useState<SmsGatewaySettings>(
-    () => safeLoad(APP_STORAGE_KEYS.smsGateway, DEFAULT_SMS_GATEWAY_SETTINGS),
+    () => safeLoad("phase11a_sms_gateway", DEFAULT_SMS_GATEWAY_SETTINGS),
   );
   const [historySearch, setHistorySearch] = useState("");
 
   const [employees, setEmployees] = useState<EmployeeRecord[]>(() => {
-    const saved = safeLoad<Partial<EmployeeRecord>[]>(APP_STORAGE_KEYS.employees, []);
+    const saved = safeLoad<Partial<EmployeeRecord>[]>("phase18a_employees", []);
     return (saved.length ? saved : seedEmployeesFromUsers(USERS)).map((employee, index) => normalizeEmployeeRecord(employee, index));
   });
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(DEFAULT_EMPLOYEE_FORM);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
-  const [editingVehicleIntakeRoId, setEditingVehicleIntakeRoId] = useState<string>("");
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => safeLoad<AttendanceRecord[]>(APP_STORAGE_KEYS.attendanceRecords, []));
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => safeLoad<AttendanceRecord[]>("phase18a_attendance_records", []));
   const [attendanceBoardDate, setAttendanceBoardDate] = useState<string>(getTodayDateString());
   const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<"All" | AttendanceStatus>("All");
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>(
-    () => safeLoad(APP_STORAGE_KEYS.technicians, DEFAULT_TECHNICIANS),
+    () => safeLoad("phase10_techs", DEFAULT_TECHNICIANS),
   );
   const [suppliers, setSuppliers] = useState<Supplier[]>(
-    () => safeLoad(APP_STORAGE_KEYS.suppliers, DEFAULT_SUPPLIERS),
+    () => safeLoad("phase10_suppliers", DEFAULT_SUPPLIERS),
   );
   const [supplierBids, setSupplierBids] = useState<SupplierBid[]>(
-    () => safeLoad(APP_STORAGE_KEYS.bids, []),
+    () => safeLoad("phase10_bids", []),
   );
   const [inventory, setInventory] = useState<InventoryItem[]>(
-    () => safeLoad(APP_STORAGE_KEYS.inventory, DEFAULT_INVENTORY),
+    () => safeLoad("phase10_inventory", DEFAULT_INVENTORY),
   );
   const [supplierForm, setSupplierForm] = useState<SupplierForm>(DEFAULT_SUPPLIER_FORM);
   const [bidForms, setBidForms] = useState<Record<string, BidForm>>({});
   const [inventoryForm, setInventoryForm] = useState<InventoryForm>(DEFAULT_INVENTORY_FORM);
 
-  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>(APP_STORAGE_KEYS.ros, []).map((ro) => normalizeLegacyRepairOrder(ro)));
-  const [parts, setParts] = useState<PartRequest[]>(() => safeLoad(APP_STORAGE_KEYS.parts, []));
-  const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>(APP_STORAGE_KEYS.backJobs, []));
-  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>(APP_STORAGE_KEYS.activityLogs, []));
-  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => safeLoad<SalesEntry[]>(APP_STORAGE_KEYS.salesEntries, []));
+  const [ros, setRos] = useState<RepairOrder[]>(() => safeLoad<Partial<RepairOrder>[]>("phase10_ros", []).map((ro) => normalizeLegacyRepairOrder(ro)));
+  const [parts, setParts] = useState<PartRequest[]>(() => safeLoad("phase10_parts", []));
+  const [backJobs, setBackJobs] = useState<BackJobRecord[]>(() => safeLoad<BackJobRecord[]>("phase13a_backjobs", []));
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => safeLoad<ActivityLogEntry[]>("phase13c_activity_logs", []));
+  const [salesEntries, setSalesEntries] = useState<SalesEntry[]>(() => safeLoad<SalesEntry[]>("phase13d_sales_entries", []));
   const [salesForm, setSalesForm] = useState<SalesForm>(DEFAULT_SALES_FORM);
 
   const DRAFT_KEYS = {
@@ -3043,27 +2914,27 @@ export default function App() {
   }, [inspectionForm, paymentForms, supplierForm, bidForms, inventoryForm, salesForm, employeeForm, view]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.ros, JSON.stringify(ros));
+    localStorage.setItem("phase10_ros", JSON.stringify(ros));
   }, [ros]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.parts, JSON.stringify(parts));
+    localStorage.setItem("phase10_parts", JSON.stringify(parts));
   }, [parts]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.backJobs, JSON.stringify(backJobs));
+    localStorage.setItem("phase13a_backjobs", JSON.stringify(backJobs));
   }, [backJobs]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.activityLogs, JSON.stringify(activityLogs));
+    localStorage.setItem("phase13c_activity_logs", JSON.stringify(activityLogs));
   }, [activityLogs]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.salesEntries, JSON.stringify(salesEntries));
+    localStorage.setItem("phase13d_sales_entries", JSON.stringify(salesEntries));
   }, [salesEntries]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.employees, JSON.stringify(employees));
+    localStorage.setItem("phase18a_employees", JSON.stringify(employees));
   }, [employees]);
 
   useEffect(() => {
@@ -3084,38 +2955,38 @@ export default function App() {
   }, [attendanceRecords]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.technicians, JSON.stringify(technicians));
+    localStorage.setItem("phase10_techs", JSON.stringify(technicians));
   }, [technicians]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.suppliers, JSON.stringify(suppliers));
+    localStorage.setItem("phase10_suppliers", JSON.stringify(suppliers));
   }, [suppliers]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.bids, JSON.stringify(supplierBids));
+    localStorage.setItem("phase10_bids", JSON.stringify(supplierBids));
   }, [supplierBids]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.inventory, JSON.stringify(inventory));
+    localStorage.setItem("phase10_inventory", JSON.stringify(inventory));
   }, [inventory]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.smsGateway, JSON.stringify(smsGatewaySettings));
+    localStorage.setItem("phase11a_sms_gateway", JSON.stringify(smsGatewaySettings));
   }, [smsGatewaySettings]);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.vehicleCatalog, JSON.stringify(vehicleCatalog));
+    localStorage.setItem("phase16b_vehicle_catalog", JSON.stringify(vehicleCatalog));
   }, [vehicleCatalog]);
 
   useEffect(() => {
-    const normalizedCatalog = normalizeLegacyVehicleCatalog(safeLoad(APP_STORAGE_KEYS.vehicleCatalog, DEFAULT_PH_VEHICLE_CATALOG));
-    const normalizedUrl = normalizeVehicleCatalogUrl(safeLoad(APP_STORAGE_KEYS.vehicleCatalogUrl, ""));
+    const normalizedCatalog = normalizeLegacyVehicleCatalog(safeLoad("phase16b_vehicle_catalog", DEFAULT_PH_VEHICLE_CATALOG));
+    const normalizedUrl = normalizeVehicleCatalogUrl(safeLoad("phase16b_vehicle_catalog_url", ""));
     setVehicleCatalog((prev) => JSON.stringify(prev) === JSON.stringify(normalizedCatalog) ? prev : normalizedCatalog);
     setVehicleCatalogUrl((prev) => prev === normalizedUrl ? prev : normalizedUrl);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(APP_STORAGE_KEYS.vehicleCatalogUrl, JSON.stringify(vehicleCatalogUrl));
+    localStorage.setItem("phase16b_vehicle_catalog_url", JSON.stringify(vehicleCatalogUrl));
   }, [vehicleCatalogUrl]);
 
   useEffect(() => {
@@ -3359,84 +3230,6 @@ export default function App() {
   /* =========================
      ACTIONS
   ========================= */
-
-  const startVehicleIntakeEditFromRO = (roId: string) => {
-    const target = ros.find((ro) => ro.id === roId);
-    if (!target) return;
-    setEditingVehicleIntakeRoId(roId);
-    setInspectionForm(buildInspectionFormFromRO(target));
-    setSelectedTirePosition("frontLeft");
-    setView("vehicleIntake");
-  };
-
-  const cancelVehicleIntakeEdit = () => {
-    setEditingVehicleIntakeRoId("");
-    setInspectionForm({
-      ...DEFAULT_INSPECTION_FORM,
-      takeNotes: createDefaultTakeNotes(),
-      arrivalChecks: { ...DEFAULT_ARRIVAL_CHECKS },
-      tireInspection: { ...DEFAULT_TIRE_INSPECTION },
-      underHoodInspection: { ...DEFAULT_UNDER_HOOD_INSPECTION },
-    });
-  };
-
-  const applyLookupRecordToIntake = (ro: RepairOrder, mode: "fill" | "edit" = "fill") => {
-    setInspectionForm((prev) => ({
-      ...prev,
-      ...buildInspectionFormFromRO(ro),
-      inspectionPhotos: prev.inspectionPhotos.length ? prev.inspectionPhotos : buildInspectionFormFromRO(ro).inspectionPhotos,
-      initialExteriorPhotos: prev.initialExteriorPhotos.length ? prev.initialExteriorPhotos : buildInspectionFormFromRO(ro).initialExteriorPhotos,
-      takeNotes: prev.takeNotes.some((item) => item.note || item.photoUrl) ? prev.takeNotes : buildInspectionFormFromRO(ro).takeNotes,
-    }));
-    if (mode === "edit") {
-      setEditingVehicleIntakeRoId(ro.id);
-      setView("vehicleIntake");
-    }
-  };
-
-  const saveVehicleIntakeEdit = () => {
-    if (!editingVehicleIntakeRoId) return;
-    const target = ros.find((ro) => ro.id === editingVehicleIntakeRoId);
-    if (!target) return;
-    const customerName = buildCustomerDisplayName(inspectionForm);
-    const updatedRo: RepairOrder = {
-      ...target,
-      plate: inspectionForm.plate,
-      vehicle: buildInspectionVehicleLabel(inspectionForm),
-      vehicleMake: inspectionForm.vehicleMake,
-      vehicleModel: inspectionForm.vehicleModel,
-      vehicleYear: inspectionForm.vehicleYear,
-      fuelType: inspectionForm.fuelType,
-      transmissionType: inspectionForm.transmissionType,
-      customer: customerName,
-      customerFirstName: inspectionForm.customerFirstName,
-      customerLastName: inspectionForm.customerLastName,
-      customerPhone: inspectionForm.customerPhone,
-      customerEmail: inspectionForm.customerEmail,
-      municipality: inspectionForm.customerMunicipality || inspectionForm.municipality,
-      region: inspectionForm.region,
-      odometer: inspectionForm.odometer,
-      bay: inspectionForm.bay,
-      priority: inspectionForm.priority,
-      isReturnJob: inspectionForm.isReturnJob,
-      returnReason: inspectionForm.returnReason,
-      linkedPreviousRoId: inspectionForm.linkedPreviousRoId || undefined,
-      inspectionPhotos: inspectionForm.inspectionPhotos,
-      initialExteriorPhotos: inspectionForm.initialExteriorPhotos,
-      takeNotes: inspectionForm.takeNotes,
-      arrivalChecks: inspectionForm.arrivalChecks,
-      tireInspection: inspectionForm.tireInspection,
-      underHoodInspection: inspectionForm.underHoodInspection,
-      customerVisibleFindings: inspectionForm.customerVisibleFindings,
-      recommendationsSummary: inspectionForm.recommendationsSummary,
-      serviceAdvisorNotes: `${inspectionForm.serviceAdvisorNotes || ""}${inspectionForm.customerMunicipality ? `
-Municipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
-    };
-    recomputeAll(ros.map((ro) => (ro.id === editingVehicleIntakeRoId ? updatedRo : ro)), parts);
-    logActivity({ module: "Inspection", action: "Save Vehicle Intake Edit", recordReference: target.roNumber, oldValue: target, newValue: updatedRo });
-    setEditingVehicleIntakeRoId("");
-    setView("inspection");
-  };
 
   const createRO = () => {
     const nextRO: RepairOrder = {
@@ -5227,38 +5020,6 @@ Municipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
     );
   }, [customerHistory, historySearch]);
 
-
-  const plateLookupMatches = useMemo(() => {
-    const plateQuery = inspectionForm.plate.trim().toLowerCase();
-    if (!plateQuery) return [] as RepairOrder[];
-    return ros
-      .filter((ro) => String(ro.plate || "").trim().toLowerCase().includes(plateQuery))
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 8);
-  }, [inspectionForm.plate, ros]);
-
-  const customerLookupMatches = useMemo(() => {
-    const customerQuery = [inspectionForm.customer, inspectionForm.customerFirstName, inspectionForm.customerLastName, inspectionForm.customerPhone]
-      .map((value) => String(value || "").trim())
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    if (!customerQuery) return [] as RepairOrder[];
-    return ros
-      .filter((ro) => buildCustomerLookupText(ro).toLowerCase().includes(customerQuery))
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 8);
-  }, [inspectionForm.customer, inspectionForm.customerFirstName, inspectionForm.customerLastName, inspectionForm.customerPhone, ros]);
-
-  const masterDataSnapshot = useMemo(() => ({
-    plates: Array.from(new Set(ros.map((ro) => String(ro.plate || "").trim()).filter(Boolean))).sort(),
-    customers: Array.from(new Set(ros.map((ro) => String(ro.customer || "").trim()).filter(Boolean))).sort(),
-    vehicles: Array.from(new Set(ros.map((ro) => String(ro.vehicle || "").trim()).filter(Boolean))).sort(),
-    suppliers: suppliers.map((item) => item.name),
-    inventoryItems: inventory.map((item) => item.partName),
-    activeEmployees: employees.filter((employee) => employee.active).map((employee) => employee.displayName),
-  }), [ros, suppliers, inventory, employees]);
-
   const attendanceMapForBoardDate = useMemo(() => {
     return attendanceRecords
       .filter((record) => record.date === attendanceBoardDate)
@@ -5867,32 +5628,13 @@ Municipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
               Complete the required vehicle details here first. Service advisors can finish the rest later.
             </div>
           </div>
-          <div style={styles.wrapRow}>
-            {editingVehicleIntakeRoId ? (
-              <>
-                <button style={styles.secondaryButton} onClick={cancelVehicleIntakeEdit}>
-                  Cancel Edit Mode
-                </button>
-                <button style={styles.primaryButton} onClick={saveVehicleIntakeEdit}>
-                  Save Vehicle Intake Changes
-                </button>
-              </>
-            ) : (
-              <button style={styles.primaryButton} onClick={() => setView("inspection")}>
-                Continue to Inspection
-              </button>
-            )}
-          </div>
+          <button style={styles.primaryButton} onClick={() => setView("inspection")}>
+            Continue to Inspection
+          </button>
         </div>
 
         <div style={styles.cardBlock}>
-          <div style={styles.rowBetween}>
-            <div style={{ fontWeight: 700, marginBottom: 10 }}>Required Vehicle Details</div>
-            <div style={styles.wrapRow}>
-              {editingVehicleIntakeRoId ? <span style={styles.badgePurple}>Edit Mode Active</span> : <span style={styles.badgeBlue}>New Intake</span>}
-              <span style={styles.badgeMuted}>Rules: {MODULE_BEHAVIOR_RULES.vehicleIntake.allowInlineEdit ? "Editable" : "Locked"} • Lookup {MODULE_BEHAVIOR_RULES.vehicleIntake.supportsLookup ? "Enabled" : "Disabled"}</span>
-            </div>
-          </div>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Required Vehicle Details</div>
           <div style={styles.formGrid}>
             <input
               style={styles.input}
@@ -6001,52 +5743,6 @@ Municipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
               {requiredReady ? "Required intake complete" : "Missing required intake fields"}
             </span>
             <span style={styles.badgeBlue}>Preview: {buildInspectionVehicleLabel(inspectionForm) || "No vehicle yet"}</span>
-          </div>
-
-          <div style={{ ...styles.shopGrid, marginTop: 14 }}>
-            <div style={styles.innerBlock}>
-              <div style={styles.rowBetween}>
-                <div style={{ fontWeight: 700 }}>Plate Lookup</div>
-                <span style={styles.badgeMuted}>{plateLookupMatches.length} match{plateLookupMatches.length === 1 ? "" : "es"}</span>
-              </div>
-              <div style={{ color: "#6b7280", fontSize: 13, margin: "6px 0 10px" }}>Type a plate number to pull the latest vehicle and service history into intake without losing focus.</div>
-              <div style={{ display: "grid", gap: 8 }}>
-                {plateLookupMatches.length ? plateLookupMatches.map((ro) => (
-                  <div key={`plate-${ro.id}`} style={styles.lookupCard}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{ro.plate || "No Plate"} • {ro.vehicle || "No Vehicle"}</div>
-                      <div style={{ color: "#6b7280", fontSize: 12 }}>{ro.roNumber} • {ro.customer || "No Customer"} • {new Date(ro.createdAt).toLocaleDateString()}</div>
-                    </div>
-                    <div style={styles.wrapRow}>
-                      <button type="button" style={styles.secondaryButton} onClick={() => applyLookupRecordToIntake(ro, "fill")}>Use Record</button>
-                      <button type="button" style={styles.secondaryButton} onClick={() => startVehicleIntakeEditFromRO(ro.id)}>Edit Existing</button>
-                    </div>
-                  </div>
-                )) : <div style={{ color: "#6b7280", fontSize: 13 }}>No plate matches yet.</div>}
-              </div>
-            </div>
-
-            <div style={styles.innerBlock}>
-              <div style={styles.rowBetween}>
-                <div style={{ fontWeight: 700 }}>Customer Lookup</div>
-                <span style={styles.badgeMuted}>{customerLookupMatches.length} match{customerLookupMatches.length === 1 ? "" : "es"}</span>
-              </div>
-              <div style={{ color: "#6b7280", fontSize: 13, margin: "6px 0 10px" }}>Search by name or phone to pull previous customer details and linked vehicles.</div>
-              <div style={{ display: "grid", gap: 8 }}>
-                {customerLookupMatches.length ? customerLookupMatches.map((ro) => (
-                  <div key={`customer-${ro.id}`} style={styles.lookupCard}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{ro.customer || "No Customer"}</div>
-                      <div style={{ color: "#6b7280", fontSize: 12 }}>{ro.customerPhone || "No Phone"} • {ro.plate || "No Plate"} • {ro.vehicle || "No Vehicle"}</div>
-                    </div>
-                    <div style={styles.wrapRow}>
-                      <button type="button" style={styles.secondaryButton} onClick={() => applyLookupRecordToIntake(ro, "fill")}>Use Record</button>
-                      <button type="button" style={styles.secondaryButton} onClick={() => startVehicleIntakeEditFromRO(ro.id)}>Edit Existing</button>
-                    </div>
-                  </div>
-                )) : <div style={{ color: "#6b7280", fontSize: 13 }}>No customer matches yet.</div>}
-              </div>
-            </div>
           </div>
         </div>
 
@@ -6353,21 +6049,7 @@ Municipality / Town: ${inspectionForm.customerMunicipality}` : ""}`.trim(),
             </div>
           </div>
           <div style={styles.wrapRow}>
-            <button
-              style={styles.secondaryButton}
-              onClick={() => {
-                if (editingVehicleIntakeRoId) {
-                  setView("vehicleIntake");
-                  return;
-                }
-                const draftRo = ros.find((ro) => ro.plate === inspectionForm.plate && ro.customerPhone === inspectionForm.customerPhone) || ros.find((ro) => ro.id === editingVehicleIntakeRoId);
-                if (draftRo) {
-                  startVehicleIntakeEditFromRO(draftRo.id);
-                } else {
-                  setView("vehicleIntake");
-                }
-              }}
-            >
+            <button style={styles.secondaryButton} onClick={() => setView("vehicleIntake")}>
               Edit Vehicle Intake
             </button>
             <button style={styles.primaryButton} onClick={createROFromInspection}>
